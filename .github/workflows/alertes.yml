@@ -1,0 +1,59 @@
+name: Alertes temps réel
+
+on:
+  schedule:
+    - cron: "7 * * * *"      # relancé chaque heure ; chaque exécution surveille ~52 min
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "test = message Telegram de test, once = une vérification, loop = 52 min"
+        default: "test"
+        type: choice
+        options: [test, once, loop]
+
+concurrency:
+  group: alertes             # jamais deux surveillances en même temps
+  cancel-in-progress: false
+
+permissions:
+  contents: write            # uniquement pour le « maintien en vie » mensuel
+
+jobs:
+  alertes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      # mémoire des alertes (tokens déjà signalés, suivi des tokens jeunes)
+      - uses: actions/cache@v4
+        with:
+          path: alertes
+          key: alertes-etat-${{ github.run_id }}
+          restore-keys: alertes-etat-
+
+      - name: Surveiller
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python alertes.py ${{ inputs.mode || 'loop' }}
+
+      # dépôt public : GitHub coupe les tâches programmées après 60 jours sans activité.
+      # Le 1er et le 15 du mois, on fait un commit vide pour l'éviter.
+      - name: Maintien en vie
+        if: github.event_name == 'schedule'
+        run: |
+          if [ "$(date -u +%d)" = "01" ] || [ "$(date -u +%d)" = "15" ]; then
+            if [ "$(date -u +%H)" = "00" ]; then
+              git config user.name "veille-bot"
+              git config user.email "veille-bot@users.noreply.github.com"
+              git commit --allow-empty -m "maintien en vie des alertes"
+              git push
+            fi
+          fi
