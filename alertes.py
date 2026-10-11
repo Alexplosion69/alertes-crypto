@@ -25,16 +25,20 @@ for _k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"):
 # ---------------------------------------------------------------- Réglages (prudents)
 CYCLE_MIN = 4                 # une vérification toutes les ~4 minutes
 LOOP_MIN = 52                 # durée d'une exécution (relancée chaque heure par GitHub)
-AGE_MIN_H, AGE_MAX_H = 1, 12  # le token doit avoir survécu 1 h, mais avoir moins de 12 h
+AGE_MIN_H, AGE_MAX_H = 2, 12  # le token doit avoir survécu 2 h, mais avoir moins de 12 h
 MCAP_MIN, MCAP_MAX = 100_000, 5_000_000
 LIQ_MIN = 30_000
 VOL_1H_MIN = 30_000
 HAUSSE_1H_MIN = 25            # % de hausse sur 1 h…
-HAUSSE_SUIVI_MIN = 40         # …ou % de hausse du mcap depuis qu'on le suit (≤ 2 h)
+HAUSSE_1H_MAX = 150           # …mais pas plus : au-delà, le pump est déjà fait (ou fabriqué)
+HAUSSE_SUIVI_MIN = 40         # …ou % de hausse du mcap sur les 30-60 dernières minutes…
+HAUSSE_1H_SI_SUIVI = 10       # …à condition que le prix monte encore sur 1 h (pas essoufflé)
+CHUTE_5M_MAX = -10            # si le prix chute de plus de 10 % sur 5 min : pas d'alerte
 ACHETEURS_1H_MIN = 150        # acheteurs uniques sur 1 h
 RATIO_ACHETEURS_MIN = 1.2     # acheteurs uniques / vendeurs uniques
 LP_VERROUILLEE_MIN = 80       # Solana : % de liquidité verrouillée/brûlée minimum
 TAXE_VENTE_MAX = 10           # Base/BNB : taxe de vente max (%)
+TOP10_MAX = 35                # Base/BNB : % max détenu par les 10 plus gros wallets
 MAX_ALERTES_HEURE = 6         # au-delà : on n'en envoie plus (évite le spam)
 REALERTE_H = 24               # pas deux alertes pour le même token en 24 h
 
@@ -115,7 +119,8 @@ def cheap_filter(t):
     """Filtre gratuit et rapide (données DexScreener uniquement)."""
     return (AGE_MIN_H <= t["age_h"] <= AGE_MAX_H
             and MCAP_MIN <= t["mcap"] <= MCAP_MAX
-            and t["liq"] >= LIQ_MIN and t["vol_1h"] >= VOL_1H_MIN)
+            and t["liq"] >= LIQ_MIN and t["vol_1h"] >= VOL_1H_MIN
+            and t["chg_1h"] <= HAUSSE_1H_MAX)
 
 
 # ---------------------------------------------------------------- Sécurité
@@ -143,7 +148,14 @@ def securite(t):
               ("honeypot", "impossible", "modifier les soldes", "caché"))]
     if graves:
         return False, "GoPlus : " + ", ".join(graves)
-    if (sec.get("taxe_vente_pct") or 0) > TAXE_VENTE_MAX:
+    # données manquantes = token pas encore analysé par GoPlus : on refuse (inconnu ≠ sûr)
+    if sec.get("taxe_vente_pct") is None or sec.get("taxe_achat_pct") is None:
+        return False, "GoPlus : taxes inconnues (token pas encore analysé)"
+    if sec.get("top10_detenteurs_pct") is None:
+        return False, "GoPlus : répartition des détenteurs inconnue"
+    if sec["top10_detenteurs_pct"] > TOP10_MAX:
+        return False, f"top 10 détenteurs {sec['top10_detenteurs_pct']} % (trop concentré)"
+    if sec["taxe_vente_pct"] > TAXE_VENTE_MAX:
         return False, f"taxe de vente {sec['taxe_vente_pct']} %"
     parts = [f"taxes {sec.get('taxe_achat_pct')}/{sec.get('taxe_vente_pct')} %"]
     if sec.get("top10_detenteurs_pct") is not None:
@@ -196,13 +208,16 @@ def cycle(st, sent_this_hour):
             continue
         ratio = b / max(s, 1)
         # accélération : mcap / acheteurs vs une observation d'il y a 30 min à 2 h
-        old = [x for x in w["snaps"] if 1800 <= now - x["ts"] <= 7200]
+        old = [x for x in w["snaps"] if 1800 <= now - x["ts"] <= 3600]
         ref = old[0] if old else None
         old_b = [x for x in old if x.get("buyers")]
         ref_b = old_b[0] if old_b else None
         hausse_suivi = v.pct(t["mcap"], ref["mcap"]) if ref else None
         hausse_ach = v.pct(b, ref_b["buyers"]) if ref_b else None
-        monte = t["chg_1h"] >= HAUSSE_1H_MIN or (hausse_suivi or 0) >= HAUSSE_SUIVI_MIN
+        monte = (t["chg_1h"] >= HAUSSE_1H_MIN
+                 or ((hausse_suivi or 0) >= HAUSSE_SUIVI_MIN and t["chg_1h"] >= HAUSSE_1H_SI_SUIVI))
+        if t.get("chg_5m", 0) <= CHUTE_5M_MAX:
+            continue  # en train de retomber en ce moment
         if not (monte and b >= ACHETEURS_1H_MIN and ratio >= RATIO_ACHETEURS_MIN):
             continue
         if hausse_ach is not None and hausse_ach < 0:
@@ -221,7 +236,7 @@ def cycle(st, sent_this_hour):
         lignes = [
             f"🚨 <b>${t['symbol']}</b> ({t['chain']}) — {t['age_h']:.1f} h, {stade}",
             f"mcap {fmt_usd(t['mcap'])} · liq {fmt_usd(t['liq'])} · vol 1 h {fmt_usd(t['vol_1h'])}",
-            f"📈 prix {t['chg_1h']:+.0f} % sur 1 h" + (
+            f"📈 prix {t['chg_1h']:+.0f} % sur 1 h · {t.get('chg_5m', 0):+.0f} % sur 5 min" + (
                 f" · mcap {hausse_suivi:+.0f} % depuis {int((now - ref['ts']) / 60)} min" if ref else ""),
             f"👥 {b} acheteurs uniques / {s} vendeurs sur 1 h (×{ratio:.1f})" + (
                 f" · acheteurs {hausse_ach:+.0f} % depuis {int((now - ref_b['ts']) / 60)} min"
