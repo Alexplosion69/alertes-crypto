@@ -297,23 +297,61 @@ Tu n'as plus rien à faire : GitHub lance la surveillance **toute seule chaque h
 ### Ce qui déclenche une alerte
 
 Toutes ces conditions à la fois (réglables en haut de `alertes.py`) :
-- token âgé de **1 h à 12 h** (il a survécu, mais c'est encore tôt) ;
+- token âgé de **2 h à 12 h** (il a survécu à son lancement, mais c'est encore tôt) ;
 - mcap de **100 k$ à 5 M$**, liquidité **≥ 30 k$**, volume **≥ 30 k$** sur 1 h ;
-- prix **+25 % sur 1 h**, ou mcap **+40 %** depuis qu'on le suit ;
+- prix **entre +25 % et +150 % sur 1 h** (au-delà, le pump est déjà fait ou fabriqué), ou mcap **+40 %** sur les 30 à 60 dernières minutes avec un prix encore en hausse sur 1 h (≥ +10 %) ;
+- pas en train de chuter : moins de -10 % sur les 5 dernières minutes ;
 - au moins **150 acheteurs uniques** sur 1 h, et **1,2 fois plus** d'acheteurs que de vendeurs ;
 - nombre d'acheteurs **en hausse** ;
 - **pas de wash trading** ;
 - sécurité propre : RugCheck sans « danger » et liquidité verrouillée **≥ 80 %** (Solana),
-  ou GoPlus sans honeypot ni taxe de vente > 10 % (Base/BNB).
+  ou GoPlus sans honeypot, taxe de vente ≤ 10 % et top 10 des détenteurs ≤ 35 % (Base/BNB).
+  Si GoPlus n'a pas encore de données sur le token, **pas d'alerte** : inconnu ne veut pas dire sûr.
 
 Maximum **6 alertes par heure**, jamais deux fois le même token en 24 h.
+
+### Les alertes « narratif » 🧩
+
+Quand une actu devient virale (un animal célèbre, une déclaration, un mème…), des dizaines
+de tokens portant le même nom sont lancés en quelques heures. **Beaucoup de clones = un vrai
+narratif.** Et en général, le marché choisit très vite **un** gagnant : les autres meurent.
+
+Le script mémorise le nom de tous les tokens jeunes qu'il voit passer. Dès qu'un même nom
+apparaît sur **au moins 5 tokens lancés en 3 h**, il cherche le **leader**, celui que le
+marché a déjà choisi :
+- volume sur 1 h **au moins 2 fois** celui du n°2 (sinon, pas encore de gagnant net : pas d'alerte) ;
+- liquidité ≥ 20 k$ et volume ≥ 20 k$ sur 1 h ;
+- au moins 100 acheteurs uniques sur 1 h, et plus d'acheteurs que de vendeurs ;
+- pas de wash trading, sécurité propre, pas déjà à plus de +300 % sur 1 h, pas en chute sur 5 min.
+
+Les noms trop génériques (PEPE, DOGE, TRUMP, AI…), clonés en permanence, sont ignorés.
+Un même narratif n'est signalé qu'une fois toutes les 12 h.
+
+```
+🧩 Narratif détecté : « ALTIA » — 14 tokens de ce nom lancés en 3 h (solana 12, base 2)
+👑 Leader : $ALTIA (solana) — 1.8 h, mcap 850 k$ · liq 120 k$
+📊 vol 1 h 400 k$ (×6 le volume du n°2) · prix +80 % sur 1 h, +2 % sur 5 min
+👥 900 acheteurs uniques / 400 vendeurs sur 1 h
+🛡️ RugCheck sans danger, liquidité verrouillée 100 %
+Suivants (volume 1 h) : solana 65 k$ · base 20 k$ · solana 8 k$
+⚠️ Plusieurs tokens portent ce nom : sur Fomo, vérifie que l'adresse se termine par 7xK2pQ
+Voir le leader sur DexScreener
+```
+
+⚠️ **Le piège n°1 des narratifs, c'est d'acheter le mauvais clone.** Sur Fomo, plusieurs
+tokens auront le même nom et le même logo. Vérifie toujours que l'adresse du contrat se
+termine bien par les 6 caractères indiqués dans l'alerte.
+
+> Limite : le script ne voit qu'une partie des nouveaux tokens (les API gratuites donnent
+> les derniers lancés à chaque vérification, pas tous). Un petit narratif peut lui échapper ;
+> un gros, avec des dizaines de clones, sera repéré.
 
 ### Lire une alerte
 
 ```
 🚨 $TOKEN (solana) — 2.4 h, sur pumpswap
 mcap 420 k$ · liq 65 k$ · vol 1 h 90 k$
-📈 prix +38 % sur 1 h · mcap +52 % depuis 45 min
+📈 prix +38 % sur 1 h · +3 % sur 5 min · mcap +52 % depuis 45 min
 👥 310 acheteurs uniques / 140 vendeurs sur 1 h (×2.2) · acheteurs +35 % depuis 45 min
 🔁 volume/liquidité 7.1 · 1.4 achat(s) par acheteur : pas de wash détecté
 🛡️ RugCheck sans danger, liquidité verrouillée 100 %
@@ -342,8 +380,12 @@ Dans `alertes.py` (crayon ✏️ sur GitHub), en haut du fichier :
 | `HAUSSE_1H_MIN` | 25 | Hausse sur 1 h exigée (%) |
 | `LIQ_MIN` | 30 000 | Liquidité minimale ($) |
 | `MCAP_MIN`, `MCAP_MAX` | 100 k – 5 M | Fourchette de taille |
-| `AGE_MIN_H`, `AGE_MAX_H` | 1 – 12 | Âge du token (heures) |
+| `AGE_MIN_H`, `AGE_MAX_H` | 2 – 12 | Âge du token (heures) |
+| `HAUSSE_1H_MAX` | 150 | Hausse max sur 1 h (%) : au-delà, on considère que c'est trop tard |
+| `TOP10_MAX` | 35 | Base/BNB : part max des 10 plus gros détenteurs (%) |
 | `MAX_ALERTES_HEURE` | 6 | Plafond anti-spam |
+| `NARR_MIN_CLONES` | 5 | Nombre de tokens du même nom pour parler de narratif |
+| `NARR_ECART_MIN` | 2 | Le leader doit faire X fois le volume du n°2 |
 
 ### Ce qui coûte
 
