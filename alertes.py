@@ -42,6 +42,20 @@ TOP10_MAX = 35                # Base/BNB : % max détenu par les 10 plus gros wa
 MAX_ALERTES_HEURE = 6         # au-delà : on n'en envoie plus (évite le spam)
 REALERTE_H = 24               # pas deux alertes pour le même token en 24 h
 
+# --- Narratifs : plusieurs tokens du même nom lancés en peu de temps
+NARR_FENETRE_H = 3            # on compte les tokens lancés dans les 3 dernières heures
+NARR_MIN_CLONES = 5           # au moins 5 tokens du même nom = un vrai narratif
+NARR_LEADER_LIQ_MIN = 20_000  # le leader doit avoir au moins 20 k$ de liquidité…
+NARR_LEADER_VOL_MIN = 20_000  # …et 20 k$ de volume sur 1 h
+NARR_ECART_MIN = 2            # volume du leader ≥ 2x celui du n°2 (le marché a choisi)
+NARR_HAUSSE_MAX = 300         # leader déjà à plus de +300 % sur 1 h : trop tard
+NARR_ACHETEURS_MIN = 100      # acheteurs uniques du leader sur 1 h
+NARR_REALERTE_H = 12          # pas deux alertes pour le même narratif en 12 h
+# noms trop génériques (clonés en permanence, ce n'est pas un narratif)
+NOMS_GENERIQUES = {"sol", "solana", "pepe", "doge", "trump", "cat", "dog", "inu", "elon",
+                   "moon", "baby", "bonk", "wif", "usdc", "usdt", "eth", "weth", "bnb", "wbnb",
+                   "btc", "test", "meme", "coin", "token", "pump", "fun", "the", "ai"}
+
 STATE_FILE = Path("alertes/etat.json")
 
 
@@ -70,7 +84,7 @@ def load_state():
             return json.loads(STATE_FILE.read_text())
         except json.JSONDecodeError:
             pass
-    return {"watch": {}, "alerted": {}, "alerts": [], "rejected": {}}
+    return {"watch": {}, "alerted": {}, "alerts": [], "rejected": {}, "names": {}, "narr_alerted": {}}
 
 
 def save_state(st):
@@ -79,6 +93,10 @@ def save_state(st):
                    if now - w.get("created", now) < AGE_MAX_H * 3600 + 3600}
     st["alerted"] = {k: ts for k, ts in st["alerted"].items() if now - ts < 7 * 86400}
     st["rejected"] = {k: ts for k, ts in st.get("rejected", {}).items() if now - ts < 3600}
+    st["names"] = {k: n for k, n in st.get("names", {}).items()
+                   if now - n["created"] < NARR_FENETRE_H * 3600 * 2}
+    st["narr_alerted"] = {k: ts for k, ts in st.get("narr_alerted", {}).items()
+                          if now - ts < NARR_REALERTE_H * 3600}
     st["alerts"] = [a for a in st["alerts"] if now - a["ts"] < 30 * 86400]
     STATE_FILE.parent.mkdir(exist_ok=True)
     STATE_FILE.write_text(json.dumps(st))
@@ -113,6 +131,95 @@ def fresh_candidates():
         for item in data:
             add(item.get("chainId"), item.get("tokenAddress"), tag)
     return cands
+
+
+def norm_nom(sym):
+    """« $Altia! » -> « altia » (garde les lettres de toutes les langues)."""
+    return "".join(ch for ch in (sym or "").lower() if ch.isalnum())
+
+
+def narratifs(st, tokens, sent_this_hour):
+    """Repère les noms clonés en masse et signale le token que le marché a choisi."""
+    now = time.time()
+    names = st.setdefault("names", {})
+    for t in tokens:  # on mémorise le nom de tous les tokens jeunes vus passer
+        if t["age_h"] <= NARR_FENETRE_H * 2:
+            names[t["key"]] = {"nom": norm_nom(t["symbol"]), "symbol": t["symbol"],
+                               "chain": t["chain"], "address": t["address"],
+                               "created": now - t["age_h"] * 3600}
+    groupes = {}
+    for k, n in names.items():
+        if (now - n["created"] <= NARR_FENETRE_H * 3600 and len(n["nom"]) >= 3
+                and not n["nom"].isdigit() and n["nom"] not in NOMS_GENERIQUES):
+            groupes.setdefault(n["nom"], []).append(k)
+    gros = sorted(((nom, ks) for nom, ks in groupes.items()
+                   if len(ks) >= NARR_MIN_CLONES
+                   and nom not in st.setdefault("narr_alerted", {})),
+                  key=lambda x: len(x[1]), reverse=True)[:3]
+    by_key = {t["key"]: t for t in tokens}
+    nb = 0
+    for nom, ks in gros:
+        manquants = {k: {"chain": names[k]["chain"], "address": names[k]["address"],
+                         "sources": ["narratif"], "boost": 0}
+                     for k in ks[:40] if k not in by_key}
+        for t in v.enrich(manquants) if manquants else []:
+            by_key[t["key"]] = t
+        membres = sorted((by_key[k] for k in ks if k in by_key),
+                         key=lambda t: t["vol_1h"], reverse=True)
+        if not membres:
+            continue
+        leader = membres[0]
+        second_vol = membres[1]["vol_1h"] if len(membres) > 1 else 0
+        if not (leader["liq"] >= NARR_LEADER_LIQ_MIN and leader["vol_1h"] >= NARR_LEADER_VOL_MIN
+                and leader["chg_1h"] <= NARR_HAUSSE_MAX and leader.get("chg_5m", 0) > CHUTE_5M_MAX
+                and leader["vol_1h"] >= NARR_ECART_MIN * max(second_vol, 1)):
+            print(f"narratif « {nom} » ({len(ks)} tokens) : pas de leader net pour l'instant")
+            continue
+        v.add_traders([leader])
+        v.flag_wash(leader)
+        b, sl = leader.get("acheteurs_uniques_1h"), leader.get("vendeurs_uniques_1h")
+        if leader.get("alerte_wash_trading") or b is None or b < NARR_ACHETEURS_MIN or b < (sl or 0):
+            print(f"narratif « {nom} » : leader ${leader['symbol']} écarté (acheteurs/wash)")
+            continue
+        ok, sec_txt = securite(leader)
+        if not ok:
+            print(f"narratif « {nom} » : leader écarté : {sec_txt}")
+            st["narr_alerted"][nom] = now  # on ne réessaie pas avant 12 h
+            continue
+        if sent_this_hour[0] >= MAX_ALERTES_HEURE:
+            continue
+        chaines = {}
+        for k in ks:
+            chaines[names[k]["chain"]] = chaines.get(names[k]["chain"], 0) + 1
+        ecart = (f"×{leader['vol_1h'] / second_vol:.0f} le volume du n°2" if second_vol
+                 else "seul à avoir du volume")
+        autres = " · ".join(f"{m['chain']} {fmt_usd(m['vol_1h'])}" for m in membres[1:4])
+        lignes = [
+            f"🧩 <b>Narratif détecté : « {leader['symbol']} »</b> — {len(ks)} tokens de ce nom "
+            f"lancés en {NARR_FENETRE_H} h ({', '.join(f'{c} {n}' for c, n in chaines.items())})",
+            f"👑 Leader : <b>${leader['symbol']}</b> ({leader['chain']}) — {leader['age_h']:.1f} h, "
+            f"mcap {fmt_usd(leader['mcap'])} · liq {fmt_usd(leader['liq'])}",
+            f"📊 vol 1 h {fmt_usd(leader['vol_1h'])} ({ecart}) · prix {leader['chg_1h']:+.0f} % sur 1 h, "
+            f"{leader.get('chg_5m', 0):+.0f} % sur 5 min",
+            f"👥 {b} acheteurs uniques / {sl} vendeurs sur 1 h",
+            f"🛡️ {sec_txt}",
+            f"Suivants (volume 1 h) : {autres}" if autres else "",
+            f"⚠️ Plusieurs tokens portent ce nom : sur Fomo, vérifie que l'adresse se termine par "
+            f"<code>{leader['address'][-6:]}</code>",
+            f"<a href=\"{leader['dexscreener']}\">Voir le leader sur DexScreener</a>",
+            "<i>Signal automatique, pas un conseil. Petite mise seulement.</i>",
+        ]
+        if telegram("\n".join(x for x in lignes if x)):
+            sent_this_hour[0] += 1
+            nb += 1
+            st["narr_alerted"][nom] = now
+            st["alerted"][leader["key"]] = now
+            st["alerts"].append({"ts": now, "type": "narratif", "nom": nom, "key": leader["key"],
+                                 "symbol": leader["symbol"], "chain": leader["chain"],
+                                 "address": leader["address"], "price": leader["price"],
+                                 "mcap": leader["mcap"], "url": leader["dexscreener"],
+                                 "clones": len(ks)})
+    return nb
 
 
 def cheap_filter(t):
@@ -193,6 +300,10 @@ def cycle(st, sent_this_hour):
         w["snaps"] = [x for x in w["snaps"] if now - x["ts"] < 3 * 3600]
         w["snaps"].append({"ts": now, "mcap": t["mcap"], "buyers": None})
 
+    # narratifs d'abord : un leader signalé ne sera pas re-signalé par l'alerte classique
+    nb_narr = narratifs(st, tokens, sent_this_hour)
+    if nb_narr:
+        print(f"{nb_narr} alerte(s) narratif")
     st.setdefault("rejected", {})
     short = [t for t in tokens if cheap_filter(t)
              and now - st["alerted"].get(t["key"], 0) > REALERTE_H * 3600
