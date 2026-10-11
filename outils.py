@@ -94,6 +94,7 @@ def enrich(cands):
             "vol_1h": vol.get("h1") or 0,
             "vol_6h": vol.get("h6") or 0,
             "vol_24h": vol.get("h24") or 0,
+            "chg_5m": chg.get("m5") or 0,
             "chg_1h": chg.get("h1") or 0,
             "chg_6h": chg.get("h6") or 0,
             "chg_24h": chg.get("h24") or 0,
