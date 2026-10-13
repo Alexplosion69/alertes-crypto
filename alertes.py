@@ -1,22 +1,34 @@
 """
-Alertes en temps réel sur Telegram : tokens jeunes qui décollent avec de vrais signaux.
+Alertes en temps réel sur Telegram :
+  🚨 classique  : token jeune (2-12 h) qui décolle avec de vrais acheteurs
+  🌱 survivant  : token de 12 h à 7 jours qui a tenu un plancher et repart (suivi.py)
+  🐋 smart wallets : plusieurs wallets gagnants achètent le même token (portefeuilles.py,
+                    en mode observation au départ)
+  🧩 narratif   : nom cloné en masse, on signale le leader (avec son identité 🪪 et un plan 🎯)
+  📊 bilan quotidien à 9 h : ce que sont devenues toutes les alertes
+Toutes les alertes passent par la sécurité (RugCheck / GoPlus) et le filtre dev (devs.py).
 
   python alertes.py loop   -> tourne ~52 min, vérifie toutes les ~4 min (lancé chaque heure)
   python alertes.py once   -> une seule vérification (pour tester)
   python alertes.py test   -> envoie juste un message de test sur Telegram
+  python alertes.py bilan  -> envoie le bilan tout de suite
 
 Variables d'environnement : TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 Gratuit : DexScreener, GeckoTerminal, RugCheck, GoPlus. Pas de X ni de Claude ici.
 """
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
 
 import requests
 
+import devs
 import outils as v  # briques communes : API gratuites, wash trading, GoPlus
+import portefeuilles
+import suivi
 
 for _k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"):
     if os.getenv(_k):
@@ -51,6 +63,21 @@ NARR_ECART_MIN = 2            # volume du leader ≥ 2x celui du n°2 (le march�
 NARR_HAUSSE_MAX = 300         # leader déjà à plus de +300 % sur 1 h : trop tard
 NARR_ACHETEURS_MIN = 100      # acheteurs uniques du leader sur 1 h
 NARR_REALERTE_H = 12          # pas deux alertes pour le même narratif en 12 h
+# Avant la foule : sur les 7 premiers narratifs, les 2 qui ont doublé (SEALS x10, COWE x2,3)
+# avaient 354 et 768 acheteurs/h et 26-42 k$ de volume à l'alerte ; les 5 morts en avaient
+# 1 400 à 3 100 et 170-590 k$ : la foule était déjà là, c'était le sommet.
+NARR_ACHETEURS_MAX = 1200     # au-delà : narratif saturé -> pas envoyé (gardé pour le bilan)
+NARR_VOL_1H_MAX = 150_000     # idem pour le volume du leader sur 1 h
+NARR_ETOILE_ECART = 5         # ⭐ profil SEALS : leader écrasant (≥ 5x le volume du n°2)…
+NARR_ETOILE_AGE_H = 1.5       # …et qui a déjà survécu 1 h 30 (SEALS : x25 et 2,1 h)
+NARRATIFS_EN_DIRECT = True    # False : enregistrés pour le bilan seulement (1 sur 5 au 13/10 : SEALS x10)
+
+# --- Survivants (les critères de forme sont dans suivi.py)
+SURV_ACHETEURS_1H_MIN = 30    # acheteurs uniques sur 1 h
+SURV_ACHETEURS_24H_MIN = 300  # acheteurs uniques sur 24 h
+SURV_REALERTE_H = 48
+
+BILAN_HEURE_UTC = 7           # bilan quotidien vers 9 h (heure d'été) / 8 h (heure d'hiver)
 # noms trop génériques (clonés en permanence, ce n'est pas un narratif)
 NOMS_GENERIQUES = {"sol", "solana", "pepe", "doge", "trump", "cat", "dog", "inu", "elon",
                    "moon", "baby", "bonk", "wif", "usdc", "usdt", "eth", "weth", "bnb", "wbnb",
@@ -84,7 +111,8 @@ def load_state():
             return json.loads(STATE_FILE.read_text())
         except json.JSONDecodeError:
             pass
-    return {"watch": {}, "alerted": {}, "alerts": [], "rejected": {}, "names": {}, "narr_alerted": {}}
+    return {"watch": {}, "alerted": {}, "alerts": [], "rejected": {}, "names": {}, "narr_alerted": {},
+            "surv_alerted": {}}
 
 
 def save_state(st):
@@ -97,6 +125,8 @@ def save_state(st):
                    if now - n["created"] < NARR_FENETRE_H * 3600 * 2}
     st["narr_alerted"] = {k: ts for k, ts in st.get("narr_alerted", {}).items()
                           if now - ts < NARR_REALERTE_H * 3600}
+    st["surv_alerted"] = {k: ts for k, ts in st.get("surv_alerted", {}).items()
+                          if now - ts < SURV_REALERTE_H * 3600}
     st["alerts"] = [a for a in st["alerts"] if now - a["ts"] < 30 * 86400]
     STATE_FILE.parent.mkdir(exist_ok=True)
     STATE_FILE.write_text(json.dumps(st))
@@ -133,12 +163,54 @@ def fresh_candidates():
     return cands
 
 
+SITES_PAS_SITES = ("x.com", "twitter.com", "4plebs", "4chan", "t.me", "instagram", "tiktok",
+                   "reddit", "youtube", "youtu.be", "facebook", "pump.fun", "dexscreener")
+
+
+def identite(t):
+    """Le token a-t-il sa propre identité (compte X à son nom, site), ou renvoie-t-il juste au
+    tweet de quelqu'un d'autre ? Renvoie (code, texte). Codes : dediee, communaute, tweet, aucune.
+    Constat au 13/10 : les 4 narratifs « de tweet » (DOPE, CAESAR, Gem, Isabella) sont tous morts ;
+    parmi les 2 avec compte X à leur nom + site, SEALS a fait x10 mais nonce est mort aussi.
+    C'est une info à lire, pas un filtre."""
+    mots = {norm_nom(t["symbol"])} | {norm_nom(w) for w in re.split(r"[\s_\-]+", t.get("name") or "")}
+    mots = {m for m in mots if len(m) >= 3}
+    compte = communaute = tiers = None
+    for s in t.get("socials") or []:
+        url = s.get("url") or ""
+        if (s.get("type") or s.get("platform")) not in ("twitter", "x") \
+                and "x.com/" not in url and "twitter.com/" not in url:
+            continue
+        if "/i/communities/" in url:
+            communaute = True
+            continue
+        m = re.search(r"(?:x|twitter)\.com/([A-Za-z0-9_]+)", url)
+        if not m:
+            continue
+        handle = m.group(1)
+        if any(w in handle.lower() for w in mots):
+            compte = handle
+        elif "/status/" in url:
+            tiers = handle
+        else:
+            compte = compte or handle
+    site = any(w and not any(d in w.lower() for d in SITES_PAS_SITES) for w in t.get("websites") or [])
+    if compte:
+        return "dediee", f"compte X à son nom (@{compte})" + (" + site web" if site else "")
+    if site or communaute:
+        return "communaute", " + ".join(x for x in ("site web" if site else "",
+                                                    "communauté X" if communaute else "") if x)
+    if tiers:
+        return "tweet", f"⚠️ renvoie juste au tweet de @{tiers} (token « de tweet », souvent éphémère)"
+    return "aucune", "⚠️ aucun réseau social"
+
+
 def norm_nom(sym):
     """« $Altia! » -> « altia » (garde les lettres de toutes les langues)."""
     return "".join(ch for ch in (sym or "").lower() if ch.isalnum())
 
 
-def narratifs(st, tokens, sent_this_hour):
+def narratifs(st, tokens, sent_this_hour, sv):
     """Repère les noms clonés en masse et signale le token que le marché a choisi."""
     now = time.time()
     names = st.setdefault("names", {})
@@ -186,8 +258,12 @@ def narratifs(st, tokens, sent_this_hour):
             print(f"narratif « {nom} » : leader écarté : {sec_txt}")
             st["narr_alerted"][nom] = now  # on ne réessaie pas avant 12 h
             continue
-        if sent_this_hour[0] >= MAX_ALERTES_HEURE:
+        if NARRATIFS_EN_DIRECT and sent_this_hour[0] >= MAX_ALERTES_HEURE:
             continue
+        id_code, id_txt = identite(leader)
+        dominance = leader["vol_1h"] / second_vol if second_vol else 99
+        sature = b > NARR_ACHETEURS_MAX or leader["vol_1h"] > NARR_VOL_1H_MAX
+        etoile = dominance >= NARR_ETOILE_ECART and leader["age_h"] >= NARR_ETOILE_AGE_H
         chaines = {}
         for k in ks:
             chaines[names[k]["chain"]] = chaines.get(names[k]["chain"], 0) + 1
@@ -201,14 +277,32 @@ def narratifs(st, tokens, sent_this_hour):
             f"mcap {fmt_usd(leader['mcap'])} · liq {fmt_usd(leader['liq'])}",
             f"📊 vol 1 h {fmt_usd(leader['vol_1h'])} ({ecart}) · prix {leader['chg_1h']:+.0f} % sur 1 h, "
             f"{leader.get('chg_5m', 0):+.0f} % sur 5 min",
-            f"👥 {b} acheteurs uniques / {sl} vendeurs sur 1 h",
+            f"👥 {b} acheteurs uniques / {sl} vendeurs sur 1 h : la foule n'est pas encore là",
+            f"⭐ Profil SEALS : leader écrasant (×{min(dominance, 99):.0f} le n°2) et déjà "
+            f"{leader['age_h']:.1f} h de survie" if etoile else "",
+            f"🪪 {id_txt}",
             f"🛡️ {sec_txt}",
             f"Suivants (volume 1 h) : {autres}" if autres else "",
+            f"🎯 Plan : la moitié à x2 (mcap {fmt_usd(leader['mcap'] * 2)}) ; si ça tombe à −50 % "
+            f"(mcap {fmt_usd(leader['mcap'] / 2)}), coupe. Les narratifs sont une loterie : le "
+            f"gagnant ne paie les perdants que si on coupe vite.",
             f"⚠️ Plusieurs tokens portent ce nom : sur Fomo, vérifie que l'adresse se termine par "
             f"<code>{leader['address'][-6:]}</code>",
             f"<a href=\"{leader['dexscreener']}\">Voir le leader sur DexScreener</a>",
             "<i>Signal automatique, pas un conseil. Petite mise seulement.</i>",
         ]
+        if not NARRATIFS_EN_DIRECT or sature:  # observation : on garde la trace pour le bilan
+            print(f"narratif « {nom} » : leader ${leader['symbol']} non envoyé "
+                  f"({'saturé : ' + str(b) + ' acheteurs/h' if sature else 'observation'})")
+            st["narr_alerted"][nom] = now
+            st["alerts"].append({"ts": now, "type": "narratif", "observation": True, "nom": nom,
+                                 "key": leader["key"], "symbol": leader["symbol"],
+                                 "chain": leader["chain"], "address": leader["address"],
+                                 "price": leader["price"], "mcap": leader["mcap"],
+                                 "url": leader["dexscreener"], "clones": len(ks),
+                                 "identite": id_code, "sature": sature, "etoile": etoile})
+            suivi.ajouter(sv, leader, garder=True)
+            continue
         if telegram("\n".join(x for x in lignes if x)):
             sent_this_hour[0] += 1
             nb += 1
@@ -218,7 +312,8 @@ def narratifs(st, tokens, sent_this_hour):
                                  "symbol": leader["symbol"], "chain": leader["chain"],
                                  "address": leader["address"], "price": leader["price"],
                                  "mcap": leader["mcap"], "url": leader["dexscreener"],
-                                 "clones": len(ks)})
+                                 "clones": len(ks), "identite": id_code, "etoile": etoile})
+            suivi.ajouter(sv, leader, garder=True)
     return nb
 
 
@@ -234,19 +329,30 @@ def cheap_filter(t):
 def securite(t):
     """Renvoie (ok, résumé lisible)."""
     if t["chain"] == "solana":
-        d = v.get_json(f"https://api.rugcheck.xyz/v1/tokens/{t['address']}/report/summary")
-        if not d:
-            return False, "RugCheck indisponible"
-        dangers = [r.get("name") for r in d.get("risks") or [] if r.get("level") == "danger"]
-        lp = d.get("lpLockedPct")
-        if dangers:
-            return False, "RugCheck : " + ", ".join(dangers[:3])
+        r = devs.rugcheck(t["address"])
+        if r is None:  # rapport complet indisponible : on se rabat sur le résumé
+            d = v.get_json(f"https://api.rugcheck.xyz/v1/tokens/{t['address']}/report/summary")
+            if not d:
+                return False, "RugCheck indisponible"
+            r = {"dangers": [x.get("name") for x in d.get("risks") or [] if x.get("level") == "danger"],
+                 "warns": [x.get("name") for x in d.get("risks") or [] if x.get("level") == "warn"],
+                 "lp": d.get("lpLockedPct"), "rugged": False, "createur": None,
+                 "dev_pct": None, "inities_pct": None, "nb_tokens_dev": None, "reseaux_inities": 0}
+        lp = r["lp"]
+        if r["rugged"]:
+            return False, "RugCheck : token marqué « rugged »"
+        if r["dangers"]:
+            return False, "RugCheck : " + ", ".join(r["dangers"][:3])
         if lp is not None and float(lp) < LP_VERROUILLEE_MIN:
             return False, f"liquidité verrouillée à {float(lp):.0f} % seulement"
+        ok_dev, dev_txt = devs.verdict(t, r["createur"], r["dev_pct"], r["inities_pct"],
+                                       r["nb_tokens_dev"])
+        if not ok_dev:
+            return False, dev_txt
+        t["createur"] = r["createur"]
         lp_txt = f", liquidité verrouillée {float(lp):.0f} %" if lp is not None else ""
-        warns = [r.get("name") for r in d.get("risks") or [] if r.get("level") == "warn"]
-        warn_txt = f" (à noter : {', '.join(warns[:2])})" if warns else ""
-        return True, f"RugCheck sans danger{lp_txt}{warn_txt}"
+        warn_txt = f" (à noter : {', '.join(r['warns'][:2])})" if r["warns"] else ""
+        return True, f"RugCheck sans danger{lp_txt}{warn_txt}\n👤 {dev_txt}"
     v.goplus([t])
     sec = t.get("securite_evm")
     if not sec:
@@ -264,12 +370,16 @@ def securite(t):
         return False, f"top 10 détenteurs {sec['top10_detenteurs_pct']} % (trop concentré)"
     if sec["taxe_vente_pct"] > TAXE_VENTE_MAX:
         return False, f"taxe de vente {sec['taxe_vente_pct']} %"
+    ok_dev, dev_txt = devs.verdict(t, sec.get("createur"), sec.get("createur_detient_pct"))
+    if not ok_dev:
+        return False, dev_txt
+    t["createur"] = sec.get("createur")
     parts = [f"taxes {sec.get('taxe_achat_pct')}/{sec.get('taxe_vente_pct')} %"]
     if sec.get("top10_detenteurs_pct") is not None:
         parts.append(f"top 10 détenteurs {sec['top10_detenteurs_pct']} %")
     if sec["risques"]:
         parts.append("à noter : " + ", ".join(sec["risques"][:2]))
-    return True, "GoPlus OK, " + ", ".join(parts)
+    return True, "GoPlus OK, " + ", ".join(parts) + f"\n👤 {dev_txt}"
 
 
 # ---------------------------------------------------------------- Un cycle
@@ -277,7 +387,7 @@ def fmt_usd(x):
     return f"{x / 1e6:.2f} M$" if x >= 1e6 else f"{x / 1e3:.0f} k$"
 
 
-def cycle(st, sent_this_hour):
+def cycle(st, sent_this_hour, sv, pf):
     now = time.time()
     cands = fresh_candidates()
     # on ré-observe aussi les tokens jeunes déjà vus (pour mesurer leur accélération)
@@ -301,7 +411,7 @@ def cycle(st, sent_this_hour):
         w["snaps"].append({"ts": now, "mcap": t["mcap"], "buyers": None})
 
     # narratifs d'abord : un leader signalé ne sera pas re-signalé par l'alerte classique
-    nb_narr = narratifs(st, tokens, sent_this_hour)
+    nb_narr = narratifs(st, tokens, sent_this_hour, sv)
     if nb_narr:
         print(f"{nb_narr} alerte(s) narratif")
     st.setdefault("rejected", {})
@@ -354,6 +464,7 @@ def cycle(st, sent_this_hour):
                 if hausse_ach is not None else ""),
             f"🔁 volume/liquidité {t['volume_sur_liquidite']} · "
             f"{t.get('achats_par_acheteur_1h', '?')} achat(s) par acheteur : pas de wash détecté",
+            f"🪪 {identite(t)[1]}",
             f"🛡️ {sec_txt}",
             f"<a href=\"{t['dexscreener']}\">Voir sur DexScreener</a>",
             "<i>Signal automatique, pas un conseil. Petite mise seulement.</i>",
@@ -362,11 +473,177 @@ def cycle(st, sent_this_hour):
             sent_this_hour[0] += 1
             nb += 1
             st["alerted"][t["key"]] = now
-            st["alerts"].append({"ts": now, "key": t["key"], "symbol": t["symbol"],
-                                 "chain": t["chain"], "address": t["address"],
+            st["alerts"].append({"ts": now, "type": "classique", "key": t["key"],
+                                 "symbol": t["symbol"], "chain": t["chain"], "address": t["address"],
                                  "price": t["price"], "mcap": t["mcap"], "url": t["dexscreener"]})
+            suivi.ajouter(sv, t, garder=True)
     print(f"{time.strftime('%H:%M')} : {len(tokens)} tokens observés, "
           f"{len(short)} passent le filtre rapide, {nb} alerte(s)")
+
+    # suivi 7 jours : relevé toutes les 30 min, survivants, bons coups des wallets
+    suivi.ajouter_lot(sv, tokens)
+    r = suivi.rafraichir(sv, [st["alerts"], pf["signaux"]])
+    if r:
+        frais, morts, fins = r
+        portefeuilles.resoudre(pf, sv)          # avant de retirer les morts (dernier plus haut)
+        for k in morts:
+            devs.marquer_mort(k)
+        suivi.retirer(sv, morts + fins)
+        nb_s = alertes_survivants(st, sv, frais, sent_this_hour)
+        n_w, n_smart = portefeuilles.stats(pf)
+        print(f"suivi : {len(sv['tokens'])} tokens, {len(morts)} morts, {nb_s} survivant(s) ; "
+              f"wallets : {n_w} observés, {n_smart} smart")
+
+    def envoyer(texte):
+        if sent_this_hour[0] >= MAX_ALERTES_HEURE:
+            return False
+        ok = telegram(texte)
+        sent_this_hour[0] += 1 if ok else 0
+        return ok
+    portefeuilles.collecter(pf, sv, securite, envoyer)
+    bilan_quotidien(st, sv, pf)
+
+
+# ---------------------------------------------------------------- Survivants
+def alertes_survivants(st, sv, frais, sent_this_hour):
+    now = time.time()
+    st.setdefault("surv_alerted", {})
+    cands = []
+    for t in frais:
+        e = sv["tokens"].get(t["key"])
+        if (not e or now - st["surv_alerted"].get(t["key"], 0) < SURV_REALERTE_H * 3600
+                or now - st.get("rejected", {}).get(t["key"], 0) < 3600):
+            continue
+        m = suivi.motif_survivant(e, t, now)
+        if m:
+            cands.append((t, m))
+    if not cands:
+        return 0
+    v.add_traders([t for t, _ in cands])
+    nb = 0
+    for t, (motif, d) in cands:
+        v.flag_wash(t)
+        b, s, b24 = (t.get("acheteurs_uniques_1h"), t.get("vendeurs_uniques_1h"),
+                     t.get("acheteurs_uniques_24h"))
+        if (t.get("alerte_wash_trading") or b is None or b < SURV_ACHETEURS_1H_MIN
+                or b < (s or 0) or (b24 or 0) < SURV_ACHETEURS_24H_MIN):
+            print(f"survivant {t['symbol']} écarté : acheteurs {b}/{s} (24 h : {b24}) "
+                  f"ou wash ({t.get('alerte_wash_trading')})")
+            continue
+        ok, sec_txt = securite(t)
+        if not ok:
+            print(f"survivant {t['symbol']} écarté : {sec_txt}")
+            st.setdefault("rejected", {})[t["key"]] = now
+            continue
+        if sent_this_hour[0] >= MAX_ALERTES_HEURE:
+            continue
+        age = f"{t['age_h']:.0f} h" if t["age_h"] < 48 else f"{t['age_h'] / 24:.1f} jours"
+        if motif == "rebond":
+            forme = [f"🌱 <b>Survivant : ${t['symbol']}</b> ({t['chain']}) — {age}, rebond sur plancher",
+                     f"📉 sommet {fmt_usd(d['sommet_mcap'])} → plancher {fmt_usd(d['plancher_mcap'])} "
+                     f"(−{d['correction_pct']} %), tenu depuis {d['plancher_h']:.0f} h",
+                     f"📈 rebond +{d['rebond_pct']} % depuis le plancher, casse le haut de sa zone des "
+                     f"6 dernières heures"]
+            stop = f"🎯 si ça repasse sous le plancher ({fmt_usd(d['plancher_mcap'])}), le scénario est raté"
+        else:
+            forme = [f"🌱 <b>Survivant : ${t['symbol']}</b> ({t['chain']}) — {age}, montée régulière",
+                     f"📈 x{d['x_fenetre']} en {d['fenetre_h']} h, creux et sommets de plus en plus hauts, "
+                     f"repli max −{d['repli_max_pct']} %"]
+            stop = (f"🎯 si ça repasse sous le dernier creux ({fmt_usd(d['dernier_creux_mcap'])}), "
+                    f"la tendance est cassée")
+        lignes = forme + [
+            f"mcap {fmt_usd(t['mcap'])} · liq {fmt_usd(t['liq'])} (stable sur 12 h) · "
+            f"vol 6 h {fmt_usd(t['vol_6h'])}",
+            f"prix {t['chg_1h']:+.0f} % sur 1 h · {t['chg_6h']:+.0f} % sur 6 h · {t['chg_24h']:+.0f} % sur 24 h",
+            f"👥 {b} acheteurs / {s} vendeurs sur 1 h · {b24} acheteurs uniques sur 24 h · "
+            f"achats/ventes 6 h : {t['buys_6h']}/{t['sells_6h']}",
+            f"🪪 {identite(t)[1]}",
+            f"🛡️ {sec_txt}",
+            stop,
+            f"<a href=\"{t['dexscreener']}\">Voir sur DexScreener</a>",
+            "<i>Signal automatique, pas un conseil. Petite mise seulement.</i>",
+        ]
+        if telegram("\n".join(lignes)):
+            sent_this_hour[0] += 1
+            nb += 1
+            st["surv_alerted"][t["key"]] = now
+            st["alerts"].append({"ts": now, "type": "survivant", "motif": motif, "key": t["key"],
+                                 "symbol": t["symbol"], "chain": t["chain"], "address": t["address"],
+                                 "price": t["price"], "mcap": t["mcap"], "url": t["dexscreener"]})
+            suivi.ajouter(sv, t, garder=True)
+    return nb
+
+
+# ---------------------------------------------------------------- Bilan quotidien
+def bilan_quotidien(st, sv, pf, forcer=False):
+    now = time.time()
+    jour = time.strftime("%Y-%m-%d", time.gmtime(now))
+    if not forcer and (time.gmtime(now).tm_hour != BILAN_HEURE_UTC or st.get("dernier_bilan") == jour):
+        return
+    st["dernier_bilan"] = jour
+    alertes = [a for a in st["alerts"] if now - a["ts"] < 7 * 86400]
+    signaux = [s for s in pf["signaux"] if now - s["ts"] < 7 * 86400]
+    # prix actuel des tokens qui ne sont plus dans le suivi (anciennes alertes)
+    manquants = {a["key"]: {"chain": a["chain"], "address": a["address"], "sources": [], "boost": 0}
+                 for a in alertes + signaux if a["key"] not in sv["tokens"] and not a.get("mort")}
+    frais = {t["key"]: t for t in v.enrich(manquants)} if manquants else {}
+    for a in alertes + signaux:
+        t = frais.get(a["key"])
+        if t:
+            a["last"], a["last_mcap"] = t["price"], t["mcap"]
+            a["peak"] = max(a.get("peak") or a["price"], t["price"])
+        elif a["key"] in manquants and frais:
+            a["mort"] = True                       # disparu de DexScreener
+
+    def perf(a):
+        p0 = a["price"] or 1e-18
+        x_now = 0.0 if a.get("mort") and not a.get("last") else (a.get("last") or a["price"]) / p0
+        return x_now, (a.get("peak") or a["price"]) / p0
+
+    def resume(liste, titre):
+        if not liste:
+            return []
+        xs = [perf(a) for a in liste]
+        x2 = sum(1 for _, pk in xs if pk >= 2)
+        morts = sum(1 for (xn, _), a in zip(xs, liste) if a.get("mort") or xn < 0.1)
+        hausse = sum(1 for xn, _ in xs if xn > 1)
+        return [f"<b>{titre}</b> : {len(liste)} · x2 touché : {x2} · en hausse aujourd'hui : {hausse} · "
+                f"morts : {morts}"]
+
+    lignes = ["📊 <b>Bilan quotidien</b> (7 derniers jours, prix au moment de l'alerte → maintenant)"]
+    for typ, titre in (("classique", "🚨 Classiques"), ("survivant", "🌱 Survivants")):
+        lignes += resume([a for a in alertes if a.get("type", "classique") == typ
+                          and not a.get("observation")], titre)
+    narr = [a for a in alertes if a.get("type") == "narratif"]
+    lignes += resume([a for a in narr if not a.get("observation")], "🧩 Narratifs envoyés")
+    lignes += resume([a for a in narr if a.get("etoile")], "   dont ⭐ profil SEALS")
+    lignes += resume([a for a in narr if a.get("sature")], "🧩 Narratifs saturés (non envoyés)")
+    lignes += resume([a for a in narr if a.get("identite") == "dediee"], "🪪 Narratifs avec compte X à leur nom")
+    lignes += resume([a for a in narr if a.get("identite") == "tweet"], "🪪 Narratifs « tokens de tweet »")
+    lignes += resume([s for s in signaux if not s["trop_tard"]], "🐋 Smart wallets à temps (observation)")
+    lignes += resume([s for s in signaux if s["trop_tard"]], "🐋 Smart wallets trop tard (observation)")
+
+    recentes = sorted((a for a in alertes + signaux if now - a["ts"] < 86400), key=lambda a: a["ts"])
+    if recentes:
+        lignes.append("\n<b>Dernières 24 h :</b>")
+        icones = {"classique": "🚨", "survivant": "🌱", "narratif": "🧩"}
+        for a in recentes:
+            xn, pk = perf(a)
+            ic = "🐋" if "wallets" in a else icones.get(a.get("type", "classique"), "•")
+            fin = "mort ☠️" if a.get("mort") or xn < 0.1 else f"maintenant x{xn:.2f}"
+            note = (" (trop tard)" if a.get("trop_tard") else "") + (
+                " (obs.)" if a.get("observation") or ("wallets" in a and not a.get("envoye")) else "")
+            lignes.append(f"{ic} ${a['symbol']}{note} : mcap {fmt_usd(a['mcap'])} · plus haut x{pk:.1f} · {fin}")
+    n_w, n_smart = portefeuilles.stats(pf)
+    lignes.append(f"\n🐋 Base de wallets : {n_w} observés, {n_smart} « smart » "
+                  f"(≥ {portefeuilles.SMART_MIN_BONS_COUPS} coups à x{portefeuilles.BON_COUP_X}, "
+                  f"≥ {int(portefeuilles.SMART_MIN_TAUX * 100)} % de réussite)")
+    lignes.append(f"👀 {len(sv['tokens'])} tokens suivis en ce moment")
+    lignes.append("<i>« plus haut » = mesuré toutes les 30 min, le vrai sommet a pu être un peu plus haut.</i>")
+    texte = "\n".join(lignes)
+    if len(texte) > 3900:
+        texte = texte[:3850] + "\n…"
+    telegram(texte)
 
 
 def main(mode):
@@ -375,15 +652,27 @@ def main(mode):
         print("Message envoyé." if ok else "Échec de l'envoi (voir ci-dessus).")
         sys.exit(0 if ok else 1)
     st = load_state()
+    sv = suivi.charger()
+    pf = portefeuilles.charger()
+    devs.charger()
+    if mode == "bilan":
+        bilan_quotidien(st, sv, pf, forcer=True)
+        save_state(st)
+        return
     start = time.time()
     sent = [0]
     while True:
         t0 = time.time()
         try:
-            cycle(st, sent)
+            cycle(st, sent, sv, pf)
         except Exception as e:  # une erreur ponctuelle ne doit pas tout arrêter
+            import traceback
+            traceback.print_exc()
             print(f"[warn] cycle en erreur : {e!r}")
         save_state(st)
+        suivi.sauver(sv)
+        portefeuilles.sauver(pf)
+        devs.sauver()
         if mode != "loop" or time.time() - start > (LOOP_MIN - CYCLE_MIN) * 60:
             break
         time.sleep(max(10, CYCLE_MIN * 60 - (time.time() - t0)))

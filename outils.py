@@ -76,6 +76,7 @@ def enrich(cands):
         vol = p.get("volume") or {}
         chg = p.get("priceChange") or {}
         tx = (p.get("txns") or {}).get("h1") or {}
+        tx6 = (p.get("txns") or {}).get("h6") or {}
         socials = (p.get("info") or {}).get("socials") or []
         twitter = next((s.get("url") for s in socials
                         if (s.get("type") or s.get("platform")) in ("twitter", "x")), None)
@@ -100,8 +101,13 @@ def enrich(cands):
             "chg_24h": chg.get("h24") or 0,
             "buys_1h": tx.get("buys") or 0,
             "sells_1h": tx.get("sells") or 0,
+            "buys_6h": tx6.get("buys") or 0,
+            "sells_6h": tx6.get("sells") or 0,
+            "created_ms": p.get("pairCreatedAt"),
             "age_h": round((now_ms - (p.get("pairCreatedAt") or now_ms)) / 3.6e6, 1),
             "twitter_officiel": twitter,
+            "socials": socials,
+            "websites": [w.get("url") for w in (p.get("info") or {}).get("websites") or [] if w.get("url")],
             "sources": cands[k]["sources"],
             "boost": cands[k]["boost"],
         })
@@ -187,6 +193,7 @@ def goplus(tokens):
                           if str(h.get("is_locked")) == "1"
                           or str(h.get("address", "")).lower().startswith("0x000000000000000000000000000000000000dead"))
             t["securite_evm"] = {"risques": risques,
+                                 "createur": r.get("creator_address") or None,
                                  "liquidite_verrouillee_pct": round(lp_lock * 100, 1) if lp else None,
                                  "createur_detient_pct": tax(r.get("creator_percent")),
                                  "taxe_achat_pct": tax(r.get("buy_tax")),

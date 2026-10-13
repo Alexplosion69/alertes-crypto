@@ -1,0 +1,7 @@
+# Wallets à surveiller ajoutés à la main (facultatif).
+# Une adresse par ligne. Tout ce qui suit un # est un commentaire.
+# Solana : adresse normale. Base / BNB : adresse en 0x… (valable sur les deux).
+# Ces wallets comptent toujours comme « smart » dans le signal 🐋.
+#
+# Exemple (ligne désactivée par le # au début) :
+# AdresseDuWalletSolanaIci   # trader repéré sur Fomo
