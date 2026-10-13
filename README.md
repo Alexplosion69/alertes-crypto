@@ -146,7 +146,7 @@ script enverra les alertes.
 3. Remplace `TON_TOKEN` par ton token. ⚠️ Garde bien le mot `bot` collé devant, sans espace.
    Exemple (faux token) :
    ```
-   https://api.telegram.org/bot7123456789:AAHk3x9abcdefghijklmnopqrstuvwxyz12/getUpdates
+   
    ```
 4. Appuie sur **Entrée**.
 
