@@ -70,48 +70,51 @@ def enrich(cands):
                     best[k] = (liq, p)
             time.sleep(0.3)
 
+    return [depuis_paire(p, cands[k]) for k, (liq, p) in best.items()]
+
+
+def depuis_paire(p, cand=None):
+    """Transforme une paire DexScreener en token « à plat » utilisé partout dans le bot."""
+    cand = cand or {"sources": [], "boost": 0}
     now_ms = time.time() * 1000
-    tokens = []
-    for k, (liq, p) in best.items():
-        vol = p.get("volume") or {}
-        chg = p.get("priceChange") or {}
-        tx = (p.get("txns") or {}).get("h1") or {}
-        tx6 = (p.get("txns") or {}).get("h6") or {}
-        socials = (p.get("info") or {}).get("socials") or []
-        twitter = next((s.get("url") for s in socials
-                        if (s.get("type") or s.get("platform")) in ("twitter", "x")), None)
-        tokens.append({
-            "key": k,
-            "chain": p["chainId"],
-            "address": p["baseToken"]["address"],
-            "symbol": p["baseToken"].get("symbol") or "?",
-            "name": p["baseToken"].get("name") or "",
-            "dexscreener": p.get("url"),
-            "pair": p.get("pairAddress"),
-            "dex": p.get("dexId"),
-            "price": float(p.get("priceUsd") or 0),
-            "mcap": p.get("marketCap") or p.get("fdv") or 0,
-            "liq": liq,
-            "vol_1h": vol.get("h1") or 0,
-            "vol_6h": vol.get("h6") or 0,
-            "vol_24h": vol.get("h24") or 0,
-            "chg_5m": chg.get("m5") or 0,
-            "chg_1h": chg.get("h1") or 0,
-            "chg_6h": chg.get("h6") or 0,
-            "chg_24h": chg.get("h24") or 0,
-            "buys_1h": tx.get("buys") or 0,
-            "sells_1h": tx.get("sells") or 0,
-            "buys_6h": tx6.get("buys") or 0,
-            "sells_6h": tx6.get("sells") or 0,
-            "created_ms": p.get("pairCreatedAt"),
-            "age_h": round((now_ms - (p.get("pairCreatedAt") or now_ms)) / 3.6e6, 1),
-            "twitter_officiel": twitter,
-            "socials": socials,
-            "websites": [w.get("url") for w in (p.get("info") or {}).get("websites") or [] if w.get("url")],
-            "sources": cands[k]["sources"],
-            "boost": cands[k]["boost"],
-        })
-    return tokens
+    vol = p.get("volume") or {}
+    chg = p.get("priceChange") or {}
+    tx = (p.get("txns") or {}).get("h1") or {}
+    tx6 = (p.get("txns") or {}).get("h6") or {}
+    socials = (p.get("info") or {}).get("socials") or []
+    twitter = next((s.get("url") for s in socials
+                    if (s.get("type") or s.get("platform")) in ("twitter", "x")), None)
+    return {
+        "key": key_of(p["chainId"], p["baseToken"]["address"]),
+        "chain": p["chainId"],
+        "address": p["baseToken"]["address"],
+        "symbol": p["baseToken"].get("symbol") or "?",
+        "name": p["baseToken"].get("name") or "",
+        "dexscreener": p.get("url"),
+        "pair": p.get("pairAddress"),
+        "dex": p.get("dexId"),
+        "price": float(p.get("priceUsd") or 0),
+        "mcap": p.get("marketCap") or p.get("fdv") or 0,
+        "liq": (p.get("liquidity") or {}).get("usd") or 0,
+        "vol_1h": vol.get("h1") or 0,
+        "vol_6h": vol.get("h6") or 0,
+        "vol_24h": vol.get("h24") or 0,
+        "chg_5m": chg.get("m5") or 0,
+        "chg_1h": chg.get("h1") or 0,
+        "chg_6h": chg.get("h6") or 0,
+        "chg_24h": chg.get("h24") or 0,
+        "buys_1h": tx.get("buys") or 0,
+        "sells_1h": tx.get("sells") or 0,
+        "buys_6h": tx6.get("buys") or 0,
+        "sells_6h": tx6.get("sells") or 0,
+        "created_ms": p.get("pairCreatedAt"),
+        "age_h": round((now_ms - (p.get("pairCreatedAt") or now_ms)) / 3.6e6, 1),
+        "twitter_officiel": twitter,
+        "socials": socials,
+        "websites": [w.get("url") for w in (p.get("info") or {}).get("websites") or [] if w.get("url")],
+        "sources": cand["sources"],
+        "boost": cand["boost"],
+    }
 
 
 def add_traders(tokens):

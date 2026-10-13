@@ -8,10 +8,12 @@ Ce dépôt t'envoie sur Telegram :
 | 🌱 | **Survivant** | un token de 12 h à 7 jours a tenu un plancher et repart (ou monte régulièrement) |
 | 🐋 | **Smart wallets** | au moins 3 wallets gagnants ont acheté le même token (*mode observation au départ*) |
 | 🧩 | **Narratif** | un nom cloné en masse : le bot signale le leader, **avant que la foule arrive** |
-| 📊 | **Bilan quotidien** | chaque matin vers 9 h : ce que sont devenues toutes les alertes |
+| 📊 | **Bilan quotidien** | chaque matin vers 9 h : ce que sont devenues les alertes, et le **gain simulé** en € |
+| 📌 | **Tes positions** | tu dis au bot ce que tu as acheté, il te prévient à x2, x3… ou si ça chute |
 
 Chaque alerte passe par la sécurité (RugCheck / GoPlus) et le **filtre dev** 👤, et affiche
-l'**identité** 🪪 du token (compte X à son nom, site… ou simple lien vers le tweet de quelqu'un).
+l'**identité** 🪪 du token (compte X à son nom, site… ou simple lien vers le tweet de quelqu'un)
+et sa **force relative** 💪 (tient-il quand le marché des memecoins baisse ?).
 
 Il est **séparé** de ton résumé du matin :
 
@@ -46,8 +48,8 @@ Ton bot et tes secrets ne changent pas, et la mémoire du bot (alertes déjà en
 
 1. Dézippe `alertes-crypto.zip`.
 2. Sur GitHub, dans ton dépôt `alertes-crypto` : **Add file** → **Upload files**.
-3. Glisse-dépose ces **8 fichiers** (ceux qui existent déjà seront remplacés) :
-   `alertes.py`, `outils.py`, `devs.py`, `suivi.py`, `portefeuilles.py`,
+3. Glisse-dépose ces **9 fichiers** (ceux qui existent déjà seront remplacés) :
+   `alertes.py`, `outils.py`, `devs.py`, `suivi.py`, `portefeuilles.py`, `positions.py`,
    `portefeuilles_manuels.txt`, `requirements.txt`, `README.md`.
 4. **Commit changes**.
 5. *(Facultatif, pour avoir le bouton « bilan maintenant »)* ouvre
@@ -188,8 +190,8 @@ Copie-le (juste les chiffres) dans ton fichier texte.
 
 1. Dézippe `alertes-crypto.zip` sur ton ordinateur.
 2. Dans le nouveau dépôt : **Add file** → **Upload files**.
-3. Glisse-dépose ces **8 fichiers** : `alertes.py`, `outils.py`, `devs.py`, `suivi.py`,
-   `portefeuilles.py`, `portefeuilles_manuels.txt`, `requirements.txt`,
+3. Glisse-dépose ces **9 fichiers** : `alertes.py`, `outils.py`, `devs.py`, `suivi.py`,
+   `portefeuilles.py`, `positions.py`, `portefeuilles_manuels.txt`, `requirements.txt`,
    `README.md` (il remplace celui créé automatiquement).
 4. Clique sur **Commit changes**.
 
@@ -270,7 +272,7 @@ jobs:
 4. **Commit changes**.
 
 ✅ **Vérification** : la page d'accueil du dépôt affiche le dossier `.github` et les fichiers
-`README.md`, `alertes.py`, `outils.py`, `devs.py`, `suivi.py`, `portefeuilles.py`,
+`README.md`, `alertes.py`, `outils.py`, `devs.py`, `suivi.py`, `portefeuilles.py`, `positions.py`,
 `portefeuilles_manuels.txt`, `requirements.txt`.
 
 ---
@@ -411,13 +413,105 @@ comme smart.
 ### Le bilan quotidien 📊
 
 Chaque matin vers 9 h (8 h en hiver), un message récapitule les 7 derniers jours, par type
-d'alerte : combien ont **touché x2**, combien sont **en hausse aujourd'hui**, combien sont
-**mortes**, puis le détail des dernières 24 h (mcap à l'alerte, plus haut atteint, maintenant).
-Les smart wallets en observation y figurent aussi, marqués *(obs.)*, et les narratifs sont
-séparés : envoyés, ⭐ profil SEALS, saturés (non envoyés), et selon leur identité.
+d'alerte : combien ont **touché x2**, combien sont **en hausse**, combien sont **mortes**, et
+surtout le **💶 gain simulé** : ce que tu aurais gagné ou perdu en misant **1 € sur chaque
+alerte** avec ta règle :
+- la moitié vendue à **x2** ;
+- tant que ce n'est pas fait, tout est coupé à **−50 %** ;
+- après x2, le reste est vendu s'il retombe à **x1** (on ne perd plus) ou s'il perd **50 % depuis
+  son plus haut**.
+
+C'est la réponse chiffrée à « 1 narratif sur 3 ou 1 sur 100 ? » : si le gain simulé d'un type
+d'alerte reste négatif semaine après semaine, ce type d'alerte ne vaut pas le coup, même avec
+une bonne règle. Les prix sont relevés toutes les 30 min : un sommet ou un stop très rapide peut
+être un peu différent dans la réalité (le calcul est volontairement prudent sur les stops).
+
+Le bilan donne aussi : la **force relative** (les alertes 💪 font-elles mieux que les autres ?),
+**ton journal** de trades (si tu utilises le suivi de positions), l'**humeur du marché** des
+memecoins, puis le détail des dernières 24 h. Les narratifs sont séparés : envoyés, ⭐ profil
+SEALS, saturés (non envoyés), et selon leur identité.
 
 Pour l'avoir tout de suite : **Actions** → **Alertes temps réel** → **Run workflow** →
 mode **bilan** (si tu as fait l'étape 5 de la mise à jour).
+
+### Les tokens « pour une cause » 🎗️
+
+Pump.fun propose des **Charity Coins** : le créateur reverse tout ou partie de ses frais à une
+association vérifiée, et Pump.fun double les dons. Ces tokens ont une vraie histoire à raconter,
+qui dépasse le cercle des traders : SEALS (x22, site de collecte d'un centre de soins des
+phoques) en faisait partie, et St. Jude est monté à ~3 M$. Le bot repère ceux dont le **site** est
+une page de collecte ou d'association (mots comme fundraising, donate, charity, foundation,
+stichting, rescue…) ou dont le **nom** évoque une cause (« Save the… »), et ajoute une ligne 🎗️ à
+l'alerte. C'est une info, pas un filtre : le bilan compte leur gain simulé à part pour voir si ça
+se confirme. Attention, une « cause » peut aussi servir d'emballage à une arnaque : vérifie que le
+site est bien celui d'une vraie association.
+
+### La force relative 💪
+
+Toutes les 30 min, le bot calcule la **médiane** des variations sur 6 h de tous les memecoins
+qu'il suit (souvent 100 à 500 tokens) : c'est l'humeur du marché. Chaque alerte affiche une ligne :
+- **💪 tient malgré le marché** : le marché est en baisse (médiane ≤ −3 % sur 6 h) mais ce token
+  est stable ou en hausse. C'est le cas de GM le 13/10 (x5,7 le jour même). L'alerte porte un 💪.
+- **🌊 marché porteur** : tout monte (médiane ≥ +3 %), une partie de la hausse n'a rien de spécial.
+- **📊** sinon, simplement les deux chiffres.
+
+Le bilan compare le gain simulé des alertes 💪 et des autres : on saura vite si c'est un bon signe.
+
+### Suivre tes positions 📌 (depuis Telegram)
+
+Tu ne peux pas surveiller Fomo toute la journée : le bot le fait pour toi. Dans la conversation
+avec ton bot, écris :
+
+| Tu écris | Effet |
+|---|---|
+| `/achat ADRESSE 84k` | ajoute une position : l'adresse du token (ou le lien DexScreener) et la **mcap à laquelle tu as acheté** (sans mcap, il prend celle du moment) |
+| `/vente SEALS 25%` | tu as vendu 25 % **de ce qu'il te reste** : le suivi continue sur le reste |
+| `/vente SEALS moitie` · `quart` · `tiers` | raccourcis pour 50 %, 25 %, 33 % |
+| `/vente SEALS tout 1.8M` | tu vends tout ce qui reste : position fermée, elle part dans ton journal (la mcap de vente est facultative, sans elle le bot prend le prix du moment) |
+| `/positions` | le point tout de suite |
+
+**Les pourcentages portent toujours sur ce qui te reste.** Exemple : `/vente SEALS 25%` à x2,
+puis `/vente SEALS moitie` à x3, puis `/vente SEALS tout` à x4. Tu as vendu 25 %, puis 37,5 %,
+puis 37,5 % de ta position de départ, soit **100 % au total, jamais plus**. Le bot calcule ton
+résultat réel : 0,25 × 2 + 0,375 × 3 + 0,375 × 4 = **x3,12** sur ta mise. Après chaque vente, il
+te dit combien il te reste et combien tu as déjà encaissé.
+| `/aide` | le rappel des commandes |
+
+Le bot vérifie tes positions environ **chaque minute** et t'envoie une notification :
+- 🚀 à **x2, x3, x5, x10, x20…** ;
+- ⚠️ à **−30 %** et 🛑 à **−50 %** de ton entrée ;
+- 📉 si ça perd **30 % depuis le plus haut** (une fois le plus haut au-dessus de x1,5) : c'est
+  le moment où une belle position se transforme en perte ;
+- 🚨 si la **liquidité fond** (quelqu'un retire l'argent du pool : risque de rug) ou si le prix
+  **chute de 20 % en 5 min**.
+
+Chaque notification contient une **analyse rapide**, gratuite et sans Claude : acheteurs contre
+vendeurs sur 1 h, volume qui accélère ou s'essouffle, liquidité stable ou en baisse, chute en
+cours, volume suspect. Et un verdict : « rien d'alarmant, laisse courir le reste avec ton stop »,
+« signaux de faiblesse, sécurise plus », ou « les signaux confirment la baisse : ton plan dit de
+couper ». Ce n'est pas un ordre : c'est ta propre règle, rappelée au bon moment avec des faits.
+
+**Sur ton téléphone :**
+- les notifications Telegram s'affichent **sur l'écran verrouillé**, sans rien installer de plus.
+  Vérifie juste que les notifications de la conversation avec ton bot sont activées ;
+- le bot tient à jour un **message épinglé « 📌 Mes positions »** en haut de la conversation
+  (toutes les 30 min, et tout de suite après une alerte ou une commande) ;
+- astuce : épingle la conversation du bot en haut de ta liste Telegram (appui long →
+  Épingler), et sur Android tu peux ajouter un raccourci de la conversation sur l'écran d'accueil.
+  Un vrai widget qui afficherait les prix en direct sur l'écran d'accueil n'est pas possible
+  gratuitement : la notification sur l'écran verrouillé est ce qui s'en rapproche le plus.
+
+**Ton journal** : chaque `/vente … tout` est enregistrée. Le message épinglé et le bilan
+quotidien affichent ton nombre de trades, de gagnants, ton résultat moyen, et un avertissement
+si tu as vendu sous x1,5 des tokens qui étaient montés à x2 ou plus (le piège classique).
+
+**Limites :**
+- le bot répond en **quelques minutes** au plus (il tourne en cycles, avec un petit trou de
+  quelques minutes chaque heure entre deux exécutions GitHub) ;
+- seul ton chat (ton `TELEGRAM_CHAT_ID`) peut lui donner des ordres, les autres sont ignorés ;
+- **confidentialité** : le dépôt est public et ses journaux d'exécution aussi, alors le bot
+  n'écrit jamais tes positions dedans ; elles restent dans sa mémoire privée (le cache GitHub).
+  Ne donne pas de montants en euros au bot, il n'en a pas besoin.
 
 ### Les alertes « narratif » 🧩
 
@@ -589,7 +683,8 @@ et regarde les dernières lignes.
 | `[warn] 429` | Trop d'appels aux API gratuites | Rien à faire, le script attend et réessaie |
 | `0 alerte(s)` tout le temps pendant des jours | Conditions trop strictes pour le marché du moment | Baisse un peu `ACHETEURS_1H_MIN` ou `HAUSSE_1H_MIN` |
 | Le workflow n'apparaît pas dans **Actions** | Fichier `.yml` mal placé | Il doit être dans `.github/workflows/alertes.yml` |
-| `ModuleNotFoundError: No module named 'devs'` (ou `suivi`, `portefeuilles`) | Un des nouveaux fichiers n'a pas été envoyé | Refais l'étape 3 de la mise à jour avec les 8 fichiers |
+| `ModuleNotFoundError: No module named 'devs'` (ou `suivi`, `portefeuilles`, `positions`) | Un des nouveaux fichiers n'a pas été envoyé | Refais l'étape 3 de la mise à jour avec les 9 fichiers |
+| Le bot ne répond pas à `/achat` | La surveillance est entre deux exécutions (quelques minutes chaque heure) ou en plein cycle | Attends 3-5 min ; s'il ne répond toujours pas, regarde le log de la dernière exécution |
 | `wallets : 0 observés` pendant plusieurs heures | GeckoTerminal refuse la lecture des transactions | Rien de grave : les autres alertes marchent ; envoie le log à Claude |
 
 Dans le log, la ligne `suivi : 180 tokens, 4 morts, 0 survivant(s) ; wallets : 2300 observés,

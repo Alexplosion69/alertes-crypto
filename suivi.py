@@ -45,6 +45,10 @@ SURV_VOL_6H_MIN = 50_000
 SURV_ACHATS_6H_RATIO = 1.1    # plus d'achats que de ventes sur 6 h
 CHUTE_5M_MAX = -10
 
+# --- Force relative : un token qui tient quand le marché des memecoins baisse
+FORCE_MARCHE_BAISSE = -3      # médiane des memecoins suivis sur 6 h ≤ −3 % = marché en baisse
+FORCE_MIN_TOKENS = 20         # il faut au moins 20 tokens suivis pour calculer une médiane fiable
+
 
 def charger():
     if FICHIER.exists():
@@ -52,10 +56,11 @@ def charger():
             s = json.loads(FICHIER.read_text())
             s.setdefault("tokens", {})
             s.setdefault("dernier_releve", 0)
+            s.setdefault("marche", {})
             return s
         except json.JSONDecodeError:
             pass
-    return {"tokens": {}, "dernier_releve": 0}
+    return {"tokens": {}, "dernier_releve": 0, "marche": {}}
 
 
 def sauver(s):
@@ -137,18 +142,73 @@ def rafraichir(s, listes_suivies):
             morts.append(k)
         elif now - e["ajoute"] > SUIVI_JOURS * 86400 and now > e.get("garder_jusqua", 0):
             fins.append(k)
-    # plus haut et prix actuel des alertes / signaux envoyés (pour le bilan)
+    # humeur du marché : médiane des variations des memecoins suivis
+    ch6 = sorted(t["chg_6h"] for t in frais if t["chg_6h"] is not None)
+    ch24 = sorted(t["chg_24h"] for t in frais if t["chg_24h"] is not None)
+    if len(ch6) >= FORCE_MIN_TOKENS:
+        s["marche"] = {"med_6h": round(ch6[len(ch6) // 2], 1), "med_24h": round(ch24[len(ch24) // 2], 1),
+                       "n": len(ch6), "ts": round(now)}
+    # plus haut, prix actuel et gain simulé des alertes / signaux envoyés (pour le bilan)
     for lst in listes_suivies:
         for a in lst:
-            if now - a["ts"] > SUIVI_JOURS * 86400:
+            if now - a["ts"] > SUIVI_JOURS * 86400 or not a.get("price"):
                 continue
             t = by_key.get(a["key"])
             if t:
                 a["last"], a["last_mcap"] = t["price"], t["mcap"]
                 a["peak"] = max(a.get("peak") or a["price"], t["price"])
+                simuler(a, t["price"] / a["price"])
             if a["key"] in morts:
                 a["mort"] = True
+                simuler(a, (a.get("last") or 0) / a["price"], fin=True)
     return frais, morts, fins
+
+
+def simuler(a, x, fin=False):
+    """Gain simulé d'1 € misé sur l'alerte, avec ta règle :
+    - la moitié vendue à x2 ;
+    - tant que la moitié n'est pas vendue : tout est coupé si on tombe à −50 % ;
+    - après x2, le reste est vendu s'il retombe à x1 (on ne perd plus) ou à −50 % de son plus haut.
+    Relevés toutes les 30 min : les stops sont comptés au prix relevé (prudent)."""
+    s = a.setdefault("sim", {"cash": 0.0, "reste": 1.0, "haut": 1.0, "moitie": False})
+    if s["reste"] <= 0:
+        return
+    s["haut"] = max(s["haut"], x)
+    if not s["moitie"]:
+        if s["haut"] >= 2:
+            s["cash"] += 1.0            # 0,5 € de mise revendus à x2
+            s["reste"], s["moitie"] = 0.5, True
+        elif x <= 0.5 or fin:
+            s["cash"] += s["reste"] * x
+            s["reste"] = 0.0
+            return
+    if s["moitie"] and s["reste"] > 0 and (x <= max(1.0, 0.5 * s["haut"]) or fin):
+        s["cash"] += s["reste"] * x
+        s["reste"] = 0.0
+
+
+def resultat_sim(a):
+    """Gain (ou perte) en € pour 1 € misé, positions encore ouvertes comptées au dernier prix."""
+    s = a.get("sim")
+    if not s:
+        return 0.0
+    x = (a.get("last") or a["price"]) / a["price"] if a.get("price") else 0
+    return round(s["cash"] + s["reste"] * x - 1, 2)
+
+
+def force_relative(s, t):
+    """Renvoie (fort, texte) : le token tient-il quand le marché baisse ?"""
+    m = s.get("marche") or {}
+    if not m or time.time() - m.get("ts", 0) > 3 * 3600:
+        return False, ""
+    med, chg = m["med_6h"], t["chg_6h"]
+    if med <= FORCE_MARCHE_BAISSE and chg >= 0:
+        return True, (f"💪 tient malgré le marché : memecoins suivis {med:+.0f} % sur 6 h (médiane), "
+                      f"lui {chg:+.0f} %")
+    if med >= 3:
+        return False, (f"🌊 marché porteur : memecoins suivis {med:+.0f} % sur 6 h, une partie de la hausse "
+                       f"vient de tout le marché")
+    return False, f"📊 marché : memecoins suivis {med:+.0f} % sur 6 h (médiane), lui {chg:+.0f} %"
 
 
 def retirer(s, keys):

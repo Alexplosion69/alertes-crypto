@@ -28,6 +28,7 @@ import requests
 import devs
 import outils as v  # briques communes : API gratuites, wash trading, GoPlus
 import portefeuilles
+import positions
 import suivi
 
 for _k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"):
@@ -205,6 +206,27 @@ def identite(t):
     return "aucune", "⚠️ aucun réseau social"
 
 
+MOTS_CAUSE_SITE = ("fundrais", "donat", "donor", "giving", "charit", "stichting", "foundation", "fondation",
+                   "nonprofit", "non-profit", "gofundme", "justgiving", "every.org", "rescue", "sanctuary",
+                   "hospital", "zoo", "shelter")
+MOTS_CAUSE_NOM = ("save the", "save ", "charity", "donat", "for kids", "foundation", "rescue")
+
+
+def caritatif(t):
+    """Token lancé pour une cause (Pump.fun propose des « Charity Coins » qui reversent les frais
+    du créateur à une association vérifiée). Ex. : SEALS (x22) avait pour site une page de collecte
+    d'un centre de soins des phoques. Renvoie un texte, ou "" si rien de tel n'est repéré."""
+    nom = f"{t.get('name') or ''} ".lower()
+    sites = [w for w in t.get("websites") or [] if w]
+    site = next((w for w in sites if any(m in w.lower() for m in MOTS_CAUSE_SITE)), None)
+    if site:
+        dom = re.sub(r"^https?://(www\.)?", "", site).split("/")[0]
+        return f"🎗️ token pour une cause : site de collecte / association ({dom})"
+    if any(m in nom for m in MOTS_CAUSE_NOM):
+        return "🎗️ le nom évoque une cause (« " + (t.get("name") or "")[:30] + " ») : à vérifier"
+    return ""
+
+
 def norm_nom(sym):
     """« $Altia! » -> « altia » (garde les lettres de toutes les langues)."""
     return "".join(ch for ch in (sym or "").lower() if ch.isalnum())
@@ -261,6 +283,8 @@ def narratifs(st, tokens, sent_this_hour, sv):
         if NARRATIFS_EN_DIRECT and sent_this_hour[0] >= MAX_ALERTES_HEURE:
             continue
         id_code, id_txt = identite(leader)
+        cause_txt = caritatif(leader)
+        fort, force_txt = suivi.force_relative(sv, leader)
         dominance = leader["vol_1h"] / second_vol if second_vol else 99
         sature = b > NARR_ACHETEURS_MAX or leader["vol_1h"] > NARR_VOL_1H_MAX
         etoile = dominance >= NARR_ETOILE_ECART and leader["age_h"] >= NARR_ETOILE_AGE_H
@@ -281,6 +305,8 @@ def narratifs(st, tokens, sent_this_hour, sv):
             f"⭐ Profil SEALS : leader écrasant (×{min(dominance, 99):.0f} le n°2) et déjà "
             f"{leader['age_h']:.1f} h de survie" if etoile else "",
             f"🪪 {id_txt}",
+            cause_txt,
+            force_txt,
             f"🛡️ {sec_txt}",
             f"Suivants (volume 1 h) : {autres}" if autres else "",
             f"🎯 Plan : la moitié à x2 (mcap {fmt_usd(leader['mcap'] * 2)}) ; si ça tombe à −50 % "
@@ -300,7 +326,8 @@ def narratifs(st, tokens, sent_this_hour, sv):
                                  "chain": leader["chain"], "address": leader["address"],
                                  "price": leader["price"], "mcap": leader["mcap"],
                                  "url": leader["dexscreener"], "clones": len(ks),
-                                 "identite": id_code, "sature": sature, "etoile": etoile})
+                                 "identite": id_code, "sature": sature, "etoile": etoile,
+                                 "fort": fort, "cause": bool(cause_txt)})
             suivi.ajouter(sv, leader, garder=True)
             continue
         if telegram("\n".join(x for x in lignes if x)):
@@ -312,7 +339,8 @@ def narratifs(st, tokens, sent_this_hour, sv):
                                  "symbol": leader["symbol"], "chain": leader["chain"],
                                  "address": leader["address"], "price": leader["price"],
                                  "mcap": leader["mcap"], "url": leader["dexscreener"],
-                                 "clones": len(ks), "identite": id_code, "etoile": etoile})
+                                 "clones": len(ks), "identite": id_code, "etoile": etoile,
+                                 "fort": fort, "cause": bool(cause_txt)})
             suivi.ajouter(sv, leader, garder=True)
     return nb
 
@@ -452,10 +480,11 @@ def cycle(st, sent_this_hour, sv, pf):
             print(f"limite d'alertes atteinte, {t['symbol']} non envoyé")
             continue
 
+        fort, force_txt = suivi.force_relative(sv, t)
         stade = ("encore sur pump.fun" if t.get("dex") == "pumpfun"
                  else f"sur {t.get('dex') or '?'}")
         lignes = [
-            f"🚨 <b>${t['symbol']}</b> ({t['chain']}) — {t['age_h']:.1f} h, {stade}",
+            f"🚨 <b>${t['symbol']}</b> ({t['chain']}) — {t['age_h']:.1f} h, {stade}" + (" 💪" if fort else ""),
             f"mcap {fmt_usd(t['mcap'])} · liq {fmt_usd(t['liq'])} · vol 1 h {fmt_usd(t['vol_1h'])}",
             f"📈 prix {t['chg_1h']:+.0f} % sur 1 h · {t.get('chg_5m', 0):+.0f} % sur 5 min" + (
                 f" · mcap {hausse_suivi:+.0f} % depuis {int((now - ref['ts']) / 60)} min" if ref else ""),
@@ -465,17 +494,20 @@ def cycle(st, sent_this_hour, sv, pf):
             f"🔁 volume/liquidité {t['volume_sur_liquidite']} · "
             f"{t.get('achats_par_acheteur_1h', '?')} achat(s) par acheteur : pas de wash détecté",
             f"🪪 {identite(t)[1]}",
+            caritatif(t),
+            force_txt,
             f"🛡️ {sec_txt}",
             f"<a href=\"{t['dexscreener']}\">Voir sur DexScreener</a>",
             "<i>Signal automatique, pas un conseil. Petite mise seulement.</i>",
         ]
-        if telegram("\n".join(lignes)):
+        if telegram("\n".join(x for x in lignes if x)):
             sent_this_hour[0] += 1
             nb += 1
             st["alerted"][t["key"]] = now
             st["alerts"].append({"ts": now, "type": "classique", "key": t["key"],
                                  "symbol": t["symbol"], "chain": t["chain"], "address": t["address"],
-                                 "price": t["price"], "mcap": t["mcap"], "url": t["dexscreener"]})
+                                 "price": t["price"], "mcap": t["mcap"], "url": t["dexscreener"],
+                                 "fort": fort, "cause": bool(caritatif(t))})
             suivi.ajouter(sv, t, garder=True)
     print(f"{time.strftime('%H:%M')} : {len(tokens)} tokens observés, "
           f"{len(short)} passent le filtre rapide, {nb} alerte(s)")
@@ -538,6 +570,7 @@ def alertes_survivants(st, sv, frais, sent_this_hour):
         if sent_this_hour[0] >= MAX_ALERTES_HEURE:
             continue
         age = f"{t['age_h']:.0f} h" if t["age_h"] < 48 else f"{t['age_h'] / 24:.1f} jours"
+        fort, force_txt = suivi.force_relative(sv, t)
         if motif == "rebond":
             forme = [f"🌱 <b>Survivant : ${t['symbol']}</b> ({t['chain']}) — {age}, rebond sur plancher",
                      f"📉 sommet {fmt_usd(d['sommet_mcap'])} → plancher {fmt_usd(d['plancher_mcap'])} "
@@ -558,18 +591,23 @@ def alertes_survivants(st, sv, frais, sent_this_hour):
             f"👥 {b} acheteurs / {s} vendeurs sur 1 h · {b24} acheteurs uniques sur 24 h · "
             f"achats/ventes 6 h : {t['buys_6h']}/{t['sells_6h']}",
             f"🪪 {identite(t)[1]}",
+            caritatif(t),
+            force_txt,
             f"🛡️ {sec_txt}",
             stop,
             f"<a href=\"{t['dexscreener']}\">Voir sur DexScreener</a>",
             "<i>Signal automatique, pas un conseil. Petite mise seulement.</i>",
         ]
-        if telegram("\n".join(lignes)):
+        if fort:
+            lignes[0] += " 💪"
+        if telegram("\n".join(x for x in lignes if x)):
             sent_this_hour[0] += 1
             nb += 1
             st["surv_alerted"][t["key"]] = now
             st["alerts"].append({"ts": now, "type": "survivant", "motif": motif, "key": t["key"],
                                  "symbol": t["symbol"], "chain": t["chain"], "address": t["address"],
-                                 "price": t["price"], "mcap": t["mcap"], "url": t["dexscreener"]})
+                                 "price": t["price"], "mcap": t["mcap"], "url": t["dexscreener"],
+                                 "fort": fort, "cause": bool(caritatif(t))})
             suivi.ajouter(sv, t, garder=True)
     return nb
 
@@ -607,8 +645,9 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         x2 = sum(1 for _, pk in xs if pk >= 2)
         morts = sum(1 for (xn, _), a in zip(xs, liste) if a.get("mort") or xn < 0.1)
         hausse = sum(1 for xn, _ in xs if xn > 1)
-        return [f"<b>{titre}</b> : {len(liste)} · x2 touché : {x2} · en hausse aujourd'hui : {hausse} · "
-                f"morts : {morts}"]
+        gain = sum(suivi.resultat_sim(a) for a in liste)
+        return [f"<b>{titre}</b> : {len(liste)} · x2 touché : {x2} · en hausse : {hausse} · morts : {morts}"
+                f"\n   💶 gain simulé : <b>{gain:+.2f} €</b> pour {len(liste)} € misés"]
 
     lignes = ["📊 <b>Bilan quotidien</b> (7 derniers jours, prix au moment de l'alerte → maintenant)"]
     for typ, titre in (("classique", "🚨 Classiques"), ("survivant", "🌱 Survivants")):
@@ -620,8 +659,25 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     lignes += resume([a for a in narr if a.get("sature")], "🧩 Narratifs saturés (non envoyés)")
     lignes += resume([a for a in narr if a.get("identite") == "dediee"], "🪪 Narratifs avec compte X à leur nom")
     lignes += resume([a for a in narr if a.get("identite") == "tweet"], "🪪 Narratifs « tokens de tweet »")
+    lignes += resume([a for a in alertes if a.get("cause")], "🎗️ Tokens pour une cause (tous types)")
     lignes += resume([s for s in signaux if not s["trop_tard"]], "🐋 Smart wallets à temps (observation)")
     lignes += resume([s for s in signaux if s["trop_tard"]], "🐋 Smart wallets trop tard (observation)")
+
+    lignes += resume([a for a in alertes if a.get("fort") and not a.get("observation")],
+                     "💪 Alertes en force relative")
+    lignes += resume([a for a in alertes if a.get("fort") is False and not a.get("observation")],
+                     "   alertes sans force relative (pour comparer)")
+    lignes.append("<i>💶 gain simulé = 1 € par alerte, moitié vendue à x2, tout coupé à −50 % avant ça, "
+                  "le reste vendu s'il retombe à x1 ou perd 50 % depuis son plus haut.</i>")
+    pf_pos = positions.charger()
+    j = positions.journal_txt(pf_pos, jours=7)
+    if j or pf_pos["positions"]:
+        lignes.append("\n" + (j or "📒 Aucun trade fermé cette semaine")
+                      + f" · {len(pf_pos['positions'])} position(s) ouverte(s)")
+    m = sv.get("marche") or {}
+    if m:
+        lignes.append(f"🌡️ Marché : memecoins suivis {m['med_6h']:+.0f} % sur 6 h, {m['med_24h']:+.0f} % "
+                      f"sur 24 h (médiane de {m['n']} tokens)")
 
     recentes = sorted((a for a in alertes + signaux if now - a["ts"] < 86400), key=lambda a: a["ts"])
     if recentes:
@@ -633,7 +689,8 @@ def bilan_quotidien(st, sv, pf, forcer=False):
             fin = "mort ☠️" if a.get("mort") or xn < 0.1 else f"maintenant x{xn:.2f}"
             note = (" (trop tard)" if a.get("trop_tard") else "") + (
                 " (obs.)" if a.get("observation") or ("wallets" in a and not a.get("envoye")) else "")
-            lignes.append(f"{ic} ${a['symbol']}{note} : mcap {fmt_usd(a['mcap'])} · plus haut x{pk:.1f} · {fin}")
+            lignes.append(f"{ic} ${a['symbol']}{note} : mcap {fmt_usd(a['mcap'])} · plus haut x{pk:.1f} · {fin}"
+                          f" · simulé {suivi.resultat_sim(a):+.2f} €")
     n_w, n_smart = portefeuilles.stats(pf)
     lignes.append(f"\n🐋 Base de wallets : {n_w} observés, {n_smart} « smart » "
                   f"(≥ {portefeuilles.SMART_MIN_BONS_COUPS} coups à x{portefeuilles.BON_COUP_X}, "
@@ -654,6 +711,7 @@ def main(mode):
     st = load_state()
     sv = suivi.charger()
     pf = portefeuilles.charger()
+    pos = positions.charger()
     devs.charger()
     if mode == "bilan":
         bilan_quotidien(st, sv, pf, forcer=True)
@@ -661,6 +719,10 @@ def main(mode):
         return
     start = time.time()
     sent = [0]
+    try:
+        positions.tick(pos)                  # répondre tout de suite aux messages en attente
+    except Exception as e:
+        print(f"[warn] positions : {type(e).__name__}")
     while True:
         t0 = time.time()
         try:
@@ -673,9 +735,18 @@ def main(mode):
         suivi.sauver(sv)
         portefeuilles.sauver(pf)
         devs.sauver()
+        # entre deux cycles : tes commandes Telegram et tes positions, toutes les ~15 s
+        while True:
+            try:
+                positions.tick(pos)
+            except Exception as e:
+                print(f"[warn] positions : {type(e).__name__}")
+            positions.sauver(pos)
+            if mode != "loop" or time.time() - t0 >= CYCLE_MIN * 60 - 15:
+                break
+            time.sleep(15)
         if mode != "loop" or time.time() - start > (LOOP_MIN - CYCLE_MIN) * 60:
             break
-        time.sleep(max(10, CYCLE_MIN * 60 - (time.time() - t0)))
 
 
 if __name__ == "__main__":
