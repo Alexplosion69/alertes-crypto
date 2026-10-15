@@ -115,9 +115,36 @@ def lire_montant(txt):
     return n * {"k": 1e3, "m": 1e6}.get(m.group(2).lower(), 1)
 
 
+def gt_token(chain, adresse):
+    """Secours GeckoTerminal quand DexScreener n'a pas (encore) le token, utile sur Robinhood Chain
+    où les tokens tout neufs mettent parfois du temps à apparaître sur DexScreener."""
+    net = v.GT_NETWORKS.get(chain)
+    if not net:
+        return None
+    d = v.gt_get(f"/networks/{net}/tokens/{adresse}") or {}
+    a = (d.get("data") or {}).get("attributes") or {}
+    try:
+        prix = float(a.get("price_usd") or 0)
+    except (TypeError, ValueError):
+        prix = 0
+    if not prix:
+        return None
+    pools = (((d.get("data") or {}).get("relationships") or {}).get("top_pools") or {}).get("data") or []
+    pool = pools[0]["id"].split("_", 1)[-1] if pools else None
+    vol = a.get("volume_usd") or {}
+    return {"key": v.key_of(chain, adresse), "chain": chain, "address": a.get("address") or adresse,
+            "symbol": a.get("symbol") or "?", "name": a.get("name") or "",
+            "dexscreener": f"https://www.geckoterminal.com/{net}/pools/{pool}" if pool else None,
+            "pair": pool, "price": prix,
+            "mcap": float(a.get("market_cap_usd") or a.get("fdv_usd") or 0),
+            "liq": float(a.get("total_reserve_in_usd") or 0),
+            "vol_1h": 0, "vol_6h": 0, "vol_24h": float(vol.get("h24") or 0),
+            "chg_5m": 0, "chg_1h": 0, "chg_6h": 0, "chg_24h": 0, "source": "geckoterminal"}
+
+
 def trouver_token(texte):
     """Retrouve le token à partir d'une adresse ou d'un lien. Renvoie un token « à plat » ou None."""
-    m = re.search(r"dexscreener\.com/(solana|base|bsc)/([A-Za-z0-9]+)", texte)
+    m = re.search(r"dexscreener\.com/(solana|base|bsc|robinhood)/([A-Za-z0-9]+)", texte)
     if m:
         essais = [(m.group(1), m.group(2))]
     else:
@@ -125,7 +152,7 @@ def trouver_token(texte):
         if not m:
             return None
         a = m.group(0)
-        essais = [(c, a) for c in (("base", "bsc") if a.startswith("0x") else ("solana",))]
+        essais = [(c, a) for c in (("base", "bsc", "robinhood") if a.startswith("0x") else ("solana",))]
     for chain, a in essais:
         paires = v.get_json(f"{v.DS}/tokens/v1/{chain}/{a}") or []
         if not paires:                      # c'est peut-être l'adresse d'une paire
@@ -135,6 +162,10 @@ def trouver_token(texte):
         if paires:
             best = max(paires, key=lambda x: (x.get("liquidity") or {}).get("usd") or 0)
             return v.depuis_paire(best)
+    for chain, a in essais:                  # secours : GeckoTerminal
+        t = gt_token(chain, a)
+        if t:
+            return t
     return None
 
 
@@ -298,7 +329,7 @@ def analyse(t, pos):
             lignes.append(f"❌ plus de vendeurs que d'acheteurs sur 1 h ({s} / {b}) : des gens encaissent")
         else:
             lignes.append(f"➖ autant d'acheteurs que de vendeurs ({b} / {s})")
-    rythme = t["vol_1h"] / max(t["vol_6h"] / 6, 1)
+    rythme = t["vol_1h"] / max(t["vol_6h"] / 6, 1) if t["vol_6h"] else 1.0   # inconnu = neutre
     if rythme >= 1.2:
         score += 1
         lignes.append(f"✅ le volume accélère (1 h = {rythme:.1f}x la moyenne des 6 h)")
@@ -350,6 +381,11 @@ def surveiller(p):
                                                     "sources": [], "boost": 0}
              for x in p["positions"].values()}
     frais = {t["key"]: t for t in v.enrich(cands)}
+    for k, c in cands.items():               # pas sur DexScreener : on essaie GeckoTerminal
+        if k not in frais:
+            t = gt_token(c["chain"], c["address"])
+            if t:
+                frais[k] = t
     now = time.time()
     for pid, pos in list(p["positions"].items()):
         t = frais.get(v.key_of(pos["chain"], pos["address"]))
@@ -390,7 +426,7 @@ def surveiller(p):
         score, lignes = analyse(t, pos)
         msg = "\n".join([e[1] for e in evts] + [f"maintenant x{x:.2f} · plus haut x{pos['haut_x']:.1f}"]
                         + lignes + [f"👉 {verdict(typ, score, pos)}",
-                                    f"<a href=\"{t['dexscreener']}\">Graphique</a> · "
+                                    f"<a href=\"{t.get('dexscreener') or pos.get('url')}\">Graphique</a> · "
                                     f"<code>/vente {pid} 25%</code> · <code>/vente {pid} moitie</code> · "
                                     f"<code>/vente {pid} tout</code>"])
         envoyer(msg)

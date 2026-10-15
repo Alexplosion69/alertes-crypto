@@ -40,8 +40,9 @@ ACHAT_MIN_USD = 50            # achats plus petits ignorés (poussière, bots)
 ACHETEURS_MAX_PAR_TOKEN = 400
 BON_COUP_X = 3                # le token a fait x3 après l'achat = bon coup
 RESOLUTION_H = 72             # au bout de 72 h sans x3 : coup raté
-SMART_MIN_BONS_COUPS = 2
+SMART_MIN_BONS_COUPS = 3       # 2 au départ : trop facile avec une base de 2 jours (−45 % au bilan)
 SMART_MIN_TAUX = 0.40
+SMART_MIN_TOKENS = 5           # il faut avoir vu le wallet sur au moins 5 tokens
 SIGNAL_MIN_WALLETS = 3        # 2 wallets, ce n'est pas assez
 SIGNAL_TROP_TARD_X = 2        # prix déjà à 2x leur entrée moyenne : trop tard
 SIGNAL_REALERTE_H = 24
@@ -89,7 +90,7 @@ def manuels():
 
 def smart(pf):
     auto = {k for k, (n, w, _) in pf["w"].items()
-            if w >= SMART_MIN_BONS_COUPS and n and w / n >= SMART_MIN_TAUX}
+            if w >= SMART_MIN_BONS_COUPS and n >= SMART_MIN_TOKENS and w / n >= SMART_MIN_TAUX}
     return auto | manuels()
 
 

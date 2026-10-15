@@ -146,7 +146,7 @@ script enverra les alertes.
 3. Remplace `TON_TOKEN` par ton token. ⚠️ Garde bien le mot `bot` collé devant, sans espace.
    Exemple (faux token) :
    ```
-   
+   https://api.telegram.org/bot7123456789:AAHk3x9abcdefghijklmnopqrstuvwxyz12/getUpdates
    ```
 4. Appuie sur **Entrée**.
 
@@ -389,7 +389,8 @@ L'idée : repérer les wallets qui achètent **tôt** les tokens qui finissent p
    (GeckoTerminal) et note qui a acheté, à quel prix et pour combien (achats < 50 $ ignorés).
 2. Si le token monte ensuite à **3x le prix d'achat** d'un wallet : un **bon coup** pour lui.
    S'il meurt, ou ne fait pas x3 en 72 h : un **coup raté**.
-3. Un wallet devient **« smart »** avec **au moins 2 bons coups et 40 % de réussite**. Les bots
+3. Un wallet devient **« smart »** avec **au moins 3 bons coups, vu sur au moins 5 tokens, et 40 %
+   de réussite** (au départ c'était 2 bons coups : trop facile, le bilan a montré −45 %). Les bots
    qui achètent tout ont un taux de réussite très bas : ils restent dehors.
 
 **Le signal** : au moins **3 smart wallets** ont acheté le même token (pas forcément en même
@@ -445,6 +446,43 @@ stichting, rescue…) ou dont le **nom** évoque une cause (« Save the… »), 
 l'alerte. C'est une info, pas un filtre : le bilan compte leur gain simulé à part pour voir si ça
 se confirme. Attention, une « cause » peut aussi servir d'emballage à une arnaque : vérifie que le
 site est bien celui d'une vraie association.
+
+### Momentum confirmé 🚀 (observation)
+
+Tes meilleurs coups (DOPE, Pepper, CLAUDIA…) ont été repérés **tard**, vers 400 k$ – 1 M$, et ont
+quand même fait x3 à x10. Les survivants 🌱 sont trop stricts (2 alertes en une semaine), alors le
+bot enregistre aussi, **sans les envoyer**, les tokens qui ont ce profil :
+- 6 h à 7 jours, mcap **300 k$ – 3 M$** ;
+- liquidité **≥ 50 k$** et **≥ 3 % du mcap**, stable sur 12 h ;
+- prix **≥ 50 % de son plus haut** ;
+- le volume de la dernière heure tient (≥ 80 % de la moyenne des 6 h), plus d'achats que de ventes
+  sur 6 h, pas en baisse sur 6 h ;
+- sécurité et filtre dev OK.
+
+Le bilan affiche leur gain simulé (ligne « 🚀 Momentum confirmé »). S'il fait mieux que les
+classiques et les narratifs pendant une à deux semaines, on en fait une vraie alerte.
+
+### Robinhood Chain 🟣 (observation)
+
+Robinhood Chain est le réseau de Robinhood, lancé en juillet 2026. Les memecoins y font l'essentiel
+du volume, et Fomo est l'une des deux applis par lesquelles passe la majorité de ce trading.
+Wolfpack (vu vers 600 k$, 4,5 M$ le lendemain) était là-bas. C'est pour ça que le bot ne l'avait
+pas vu.
+
+Le bot suit maintenant cette chaîne **en observation seulement** :
+- les tokens de Robinhood Chain passent par le **suivi 7 jours** et le **momentum confirmé** ; ils
+  apparaissent dans le bilan sur une ligne 🟣 à part ;
+- **aucune alerte n'est envoyée** pour eux (ni classique, ni narratif, ni survivant), parce que
+  la sécurité n'est pas vérifiable de façon sûre : RugCheck ne fait que Solana, et on ne sait pas
+  encore si GoPlus analyse cette chaîne. Si GoPlus détecte un honeypot, le token est écarté ;
+  sinon il est noté « sécurité non vérifiée » ;
+- au démarrage, le bot vérifie si GeckoTerminal couvre la chaîne (le log dit « GeckoTerminal
+  couvre robinhood » ou « ne couvre pas »). S'il la couvre, le bot voit aussi ses tendances ;
+  sinon il se contente de DexScreener (nouveaux profils, boosts) ;
+- le suivi de positions marche aussi : `/achat 0x…` trouve les tokens de Robinhood Chain.
+
+Si la ligne 🟣 du bilan est bonne pendant une à deux semaines, et que la question de la sécurité
+est réglée, on en fera de vraies alertes.
 
 ### La force relative 💪
 
@@ -529,6 +567,16 @@ si tu as vendu sous x1,5 des tokens qui étaient montés à x2 ou plus (le pièg
 >
 > Les 2 qui ont doublé ont été signalés **avant la foule** (moins de 800 acheteurs/h, moins de
 > 50 k$ de volume). Les 5 morts avaient déjà 1 400 à 3 100 acheteurs/h : on arrivait au sommet.
+
+**Leçon du 15/10 : le vrai DOPE.** Le DOPE qui a fini vers 4-5 M$ n'est **pas** celui que le bot
+avait signalé : l'original avait gradué à 15 h 33, soit 3 h avant l'alerte, donc juste hors de la
+fenêtre de 3 h. Le bot a désigné un clone lancé 30 min plus tôt, qui est mort. Désormais :
+- le bot cherche **tous** les tokens du même nom (recherche DexScreener), même plus anciens ;
+- si un token plus ancien d'au moins 1 h, au moins aussi liquide, fait encore au moins la moitié du
+  volume du leader, **c'est lui le leader** : l'alerte porte « 👴 C'est l'original » ;
+- sinon, l'alerte affiche « ⚠️ Il existe un $X plus ancien et plus gros… » avec la fin de son adresse ;
+- le filtre « saturé » ne s'applique qu'aux leaders de moins de 2 h (un original qui a tenu des
+  heures avec beaucoup d'acheteurs, c'est le profil DOPE, pas un sommet de hype).
 
 Ce qui change donc :
 - **Filtre « avant la foule »** : si le leader a plus de **1 200 acheteurs/h** ou plus de
@@ -640,7 +688,8 @@ Dans `portefeuilles.py` (smart wallets) :
 |---|---|---|
 | `EN_DIRECT` | False | True = envoyer les signaux en alerte |
 | `SIGNAL_MIN_WALLETS` | 3 | Nombre de smart wallets sur le même token |
-| `SMART_MIN_BONS_COUPS` | 2 | Bons coups (x3) pour devenir smart |
+| `SMART_MIN_BONS_COUPS` | 3 | Bons coups (x3) pour devenir smart |
+| `SMART_MIN_TOKENS` | 5 | Nombre minimum de tokens où on a vu le wallet |
 | `SMART_MIN_TAUX` | 0.40 | Taux de réussite minimum |
 | `SIGNAL_TROP_TARD_X` | 2 | Au-delà de 2x leur entrée moyenne : trop tard |
 

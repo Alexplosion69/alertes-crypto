@@ -10,7 +10,30 @@ import requests
 DS = "https://api.dexscreener.com"
 GT = "https://api.geckoterminal.com/api/v2"   # gratuit, ~10 appels/min sans clé
 GT_NETWORKS = {"solana": "solana", "base": "base", "bsc": "bsc"}
-GOPLUS_CHAINS = {"bsc": "56", "base": "8453"}
+GOPLUS_CHAINS = {"bsc": "56", "base": "8453", "robinhood": "4663"}   # 4663 : Robinhood Chain (à confirmer)
+# Chaînes suivies EN OBSERVATION seulement (jamais d'alerte envoyée) : Robinhood Chain, lancée en
+# juillet 2026, où passe une grosse partie des memecoins tradés sur Fomo (ex. Wolfpack, x7 le 14/10).
+CHAINES_OBS = ("robinhood",)
+CHAINES = tuple(GT_NETWORKS) + CHAINES_OBS
+_GT_ESSAIS = {"robinhood": ("robinhood", "robinhood-chain", "robinhood_chain")}
+_gt_teste = set()
+
+
+def detecter_reseaux_gt():
+    """GeckoTerminal couvre-t-il Robinhood Chain ? On essaie une fois par exécution les noms
+    possibles ; si l'un répond, la chaîne profite aussi des tendances et des acheteurs uniques."""
+    for chain, essais in _GT_ESSAIS.items():
+        if chain in GT_NETWORKS or chain in _gt_teste:
+            continue
+        _gt_teste.add(chain)
+        for net in essais:
+            d = gt_get(f"/networks/{net}/trending_pools")
+            if d and isinstance(d.get("data"), list):
+                GT_NETWORKS[chain] = net
+                print(f"GeckoTerminal couvre {chain} (réseau « {net} »)")
+                break
+        else:
+            print(f"GeckoTerminal ne couvre pas {chain} : DexScreener seulement")
 UA = {"User-Agent": "alertes-crypto/1.0"}
 WASH_VOL_LIQ = 20            # volume 24 h > 20x la liquidité : wash trading probable
 WASH_TX_PER_BUYER = 6        # plus de 6 achats par acheteur en 1 h : bots probables

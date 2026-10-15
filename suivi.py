@@ -274,3 +274,32 @@ def motif_survivant(e, t, now=None):
                     "fenetre_h": round(duree / 3600), "repli_max_pct": round(repli * 100),
                     "dernier_creux_mcap": creux[2] * ratio_mcap}
     return None
+
+
+# ---------------------------------------------------------------- momentum confirmé (observation)
+MOM_AGE_MIN_H, MOM_AGE_MAX_H = 6, 168
+MOM_MCAP_MIN, MOM_MCAP_MAX = 300_000, 3_000_000   # là où tu as repéré DOPE, Pepper, CLAUDIA…
+MOM_LIQ_MIN = 50_000
+MOM_LIQ_SUR_MCAP = 0.03       # liquidité ≥ 3 % du mcap (DOPE : ~200 k$ pour ~4,8 M$)
+MOM_DEPUIS_HAUT = 0.5         # prix ≥ 50 % de son plus haut connu
+
+
+def motif_momentum(e, t, now=None):
+    """Version large des survivants : token déjà installé (6 h+, 300 k$-3 M$), liquidité solide,
+    pas effondré, volume qui continue, plus d'achats que de ventes. Renvoie un dict ou None."""
+    now = now or time.time()
+    if not (MOM_AGE_MIN_H <= t["age_h"] <= MOM_AGE_MAX_H and MOM_MCAP_MIN <= t["mcap"] <= MOM_MCAP_MAX):
+        return None
+    if t["liq"] < MOM_LIQ_MIN or t["liq"] < MOM_LIQ_SUR_MCAP * t["mcap"]:
+        return None
+    if t["price"] < MOM_DEPUIS_HAUT * max(e["ath"], t["price"]):
+        return None
+    if t["vol_1h"] < 0.8 * t["vol_6h"] / 6 or t["buys_6h"] < t["sells_6h"]:
+        return None
+    if t["chg_6h"] < 0 or t.get("chg_5m", 0) <= CHUTE_5M_MAX:
+        return None
+    ref = next((p for p in e["serie"] if p[0] >= now - 12 * 3600), e["serie"][0])
+    if t["liq"] < SURV_LIQ_STABLE * ref[3]:
+        return None
+    return {"liq_pct": round(t["liq"] / t["mcap"] * 100, 1),
+            "depuis_haut_pct": round((t["price"] / max(e["ath"], t["price"]) - 1) * 100)}

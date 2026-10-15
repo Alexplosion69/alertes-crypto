@@ -139,13 +139,14 @@ def fresh_candidates():
     cands = {}
 
     def add(chain, addr, tag):
-        if chain in v.GT_NETWORKS and addr:
+        if chain in v.CHAINES and addr:
             c = cands.setdefault(v.key_of(chain, addr),
                                  {"chain": chain, "address": addr, "sources": [], "boost": 0})
             if tag not in c["sources"]:
                 c["sources"].append(tag)
 
-    for chain, net in v.GT_NETWORKS.items():
+    v.detecter_reseaux_gt()
+    for chain, net in list(v.GT_NETWORKS.items()):
         for kind, tag in (("new_pools", "nouveau_gecko"), ("trending_pools", "tendance_gecko")):
             data = v.gt_get(f"/networks/{net}/{kind}") or {}
             for pool in data.get("data") or []:
@@ -232,12 +233,31 @@ def norm_nom(sym):
     return "".join(ch for ch in (sym or "").lower() if ch.isalnum())
 
 
+def meme_nom(nom, symbole, deja):
+    """Tous les tokens de ce nom connus de DexScreener, y compris les plus anciens que la fenêtre
+    de 3 h. Leçon du 11/10 : le vrai DOPE avait gradué 3 h avant l'alerte (puis a fait 4 M$) et
+    le bot, qui ne regardait que les 3 dernières heures, avait désigné un clone de 30 min (mort)."""
+    d = v.get_json(f"{v.DS}/latest/dex/search", params={"q": symbole}) or {}
+    best = {}
+    for p in d.get("pairs") or []:
+        base = p.get("baseToken") or {}
+        if (p.get("chainId") not in v.GT_NETWORKS or p.get("chainId") in v.CHAINES_OBS
+                or norm_nom(base.get("symbol")) != nom
+                or not p.get("priceUsd")):
+            continue
+        k = v.key_of(p["chainId"], base.get("address", ""))
+        liq = (p.get("liquidity") or {}).get("usd") or 0
+        if k not in deja and (k not in best or liq > best[k][0]):
+            best[k] = (liq, p)
+    return [v.depuis_paire(p, {"sources": ["narratif"], "boost": 0}) for _, p in best.values()]
+
+
 def narratifs(st, tokens, sent_this_hour, sv):
     """Repère les noms clonés en masse et signale le token que le marché a choisi."""
     now = time.time()
     names = st.setdefault("names", {})
     for t in tokens:  # on mémorise le nom de tous les tokens jeunes vus passer
-        if t["age_h"] <= NARR_FENETRE_H * 2:
+        if t["age_h"] <= NARR_FENETRE_H * 2 and t["chain"] not in v.CHAINES_OBS:
             names[t["key"]] = {"nom": norm_nom(t["symbol"]), "symbol": t["symbol"],
                                "chain": t["chain"], "address": t["address"],
                                "created": now - t["age_h"] * 3600}
@@ -262,8 +282,18 @@ def narratifs(st, tokens, sent_this_hour, sv):
                          key=lambda t: t["vol_1h"], reverse=True)
         if not membres:
             continue
+        membres = sorted(membres + meme_nom(nom, membres[0]["symbol"], {m["key"] for m in membres}),
+                         key=lambda t: t["vol_1h"], reverse=True)
         leader = membres[0]
-        second_vol = membres[1]["vol_1h"] if len(membres) > 1 else 0
+        # un token plus ancien (≥ 1 h d'avance) et au moins aussi liquide : souvent l'original
+        ancien = max((m for m in membres if m["age_h"] >= leader["age_h"] + 1 and m["liq"] >= leader["liq"]),
+                     key=lambda m: m["mcap"], default=None)
+        original = False
+        if ancien and ancien["vol_1h"] >= 0.5 * leader["vol_1h"]:
+            leader, ancien, original = ancien, None, True   # l'original est encore très actif : c'est lui
+        second_vol = max((m["vol_1h"] for m in membres if m is not leader), default=0)
+        if original:
+            second_vol = min(second_vol, leader["vol_1h"] / NARR_ECART_MIN)  # pas d'exigence d'écart
         if not (leader["liq"] >= NARR_LEADER_LIQ_MIN and leader["vol_1h"] >= NARR_LEADER_VOL_MIN
                 and leader["chg_1h"] <= NARR_HAUSSE_MAX and leader.get("chg_5m", 0) > CHUTE_5M_MAX
                 and leader["vol_1h"] >= NARR_ECART_MIN * max(second_vol, 1)):
@@ -286,14 +316,17 @@ def narratifs(st, tokens, sent_this_hour, sv):
         cause_txt = caritatif(leader)
         fort, force_txt = suivi.force_relative(sv, leader)
         dominance = leader["vol_1h"] / second_vol if second_vol else 99
-        sature = b > NARR_ACHETEURS_MAX or leader["vol_1h"] > NARR_VOL_1H_MAX
+        # « saturé » ne concerne que les leaders tout jeunes : un original qui a déjà tenu 2 h et plus
+        # avec beaucoup d'acheteurs, c'est le profil DOPE (x10 ensuite), pas un sommet de hype
+        sature = (leader["age_h"] < 2
+                  and (b > NARR_ACHETEURS_MAX or leader["vol_1h"] > NARR_VOL_1H_MAX))
         etoile = dominance >= NARR_ETOILE_ECART and leader["age_h"] >= NARR_ETOILE_AGE_H
         chaines = {}
         for k in ks:
             chaines[names[k]["chain"]] = chaines.get(names[k]["chain"], 0) + 1
         ecart = (f"×{leader['vol_1h'] / second_vol:.0f} le volume du n°2" if second_vol
                  else "seul à avoir du volume")
-        autres = " · ".join(f"{m['chain']} {fmt_usd(m['vol_1h'])}" for m in membres[1:4])
+        autres = " · ".join(f"{m['chain']} {fmt_usd(m['vol_1h'])}" for m in [m for m in membres if m is not leader][:3])
         lignes = [
             f"🧩 <b>Narratif détecté : « {leader['symbol']} »</b> — {len(ks)} tokens de ce nom "
             f"lancés en {NARR_FENETRE_H} h ({', '.join(f'{c} {n}' for c, n in chaines.items())})",
@@ -301,7 +334,14 @@ def narratifs(st, tokens, sent_this_hour, sv):
             f"mcap {fmt_usd(leader['mcap'])} · liq {fmt_usd(leader['liq'])}",
             f"📊 vol 1 h {fmt_usd(leader['vol_1h'])} ({ecart}) · prix {leader['chg_1h']:+.0f} % sur 1 h, "
             f"{leader.get('chg_5m', 0):+.0f} % sur 5 min",
-            f"👥 {b} acheteurs uniques / {sl} vendeurs sur 1 h : la foule n'est pas encore là",
+            f"👥 {b} acheteurs uniques / {sl} vendeurs sur 1 h" + (
+                "" if original else " : la foule n'est pas encore là"),
+            f"👴 C'est l'original : lancé {leader['age_h']:.1f} h avant, les clones essaient de copier son "
+            f"succès" if original else "",
+            f"⚠️ Il existe un ${ancien['symbol']} plus ancien et plus gros ({ancien['chain']}, mcap "
+            f"{fmt_usd(ancien['mcap'])}, liq {fmt_usd(ancien['liq'])}, {ancien['age_h']:.0f} h, adresse "
+            f"…<code>{ancien['address'][-6:]}</code>) : le leader ci-dessous est peut-être un clone"
+            if ancien else "",
             f"⭐ Profil SEALS : leader écrasant (×{min(dominance, 99):.0f} le n°2) et déjà "
             f"{leader['age_h']:.1f} h de survie" if etoile else "",
             f"🪪 {id_txt}",
@@ -327,7 +367,7 @@ def narratifs(st, tokens, sent_this_hour, sv):
                                  "price": leader["price"], "mcap": leader["mcap"],
                                  "url": leader["dexscreener"], "clones": len(ks),
                                  "identite": id_code, "sature": sature, "etoile": etoile,
-                                 "fort": fort, "cause": bool(cause_txt)})
+                                 "fort": fort, "cause": bool(cause_txt), "original": original})
             suivi.ajouter(sv, leader, garder=True)
             continue
         if telegram("\n".join(x for x in lignes if x)):
@@ -340,14 +380,14 @@ def narratifs(st, tokens, sent_this_hour, sv):
                                  "address": leader["address"], "price": leader["price"],
                                  "mcap": leader["mcap"], "url": leader["dexscreener"],
                                  "clones": len(ks), "identite": id_code, "etoile": etoile,
-                                 "fort": fort, "cause": bool(cause_txt)})
+                                 "fort": fort, "cause": bool(cause_txt), "original": original})
             suivi.ajouter(sv, leader, garder=True)
     return nb
 
 
 def cheap_filter(t):
     """Filtre gratuit et rapide (données DexScreener uniquement)."""
-    return (AGE_MIN_H <= t["age_h"] <= AGE_MAX_H
+    return (t["chain"] not in v.CHAINES_OBS and AGE_MIN_H <= t["age_h"] <= AGE_MAX_H
             and MCAP_MIN <= t["mcap"] <= MCAP_MAX
             and t["liq"] >= LIQ_MIN and t["vol_1h"] >= VOL_1H_MIN
             and t["chg_1h"] <= HAUSSE_1H_MAX)
@@ -522,6 +562,7 @@ def cycle(st, sent_this_hour, sv, pf):
             devs.marquer_mort(k)
         suivi.retirer(sv, morts + fins)
         nb_s = alertes_survivants(st, sv, frais, sent_this_hour)
+        momentum_observation(st, sv, frais)
         n_w, n_smart = portefeuilles.stats(pf)
         print(f"suivi : {len(sv['tokens'])} tokens, {len(morts)} morts, {nb_s} survivant(s) ; "
               f"wallets : {n_w} observés, {n_smart} smart")
@@ -543,7 +584,8 @@ def alertes_survivants(st, sv, frais, sent_this_hour):
     cands = []
     for t in frais:
         e = sv["tokens"].get(t["key"])
-        if (not e or now - st["surv_alerted"].get(t["key"], 0) < SURV_REALERTE_H * 3600
+        if (not e or t["chain"] in v.CHAINES_OBS
+                or now - st["surv_alerted"].get(t["key"], 0) < SURV_REALERTE_H * 3600
                 or now - st.get("rejected", {}).get(t["key"], 0) < 3600):
             continue
         m = suivi.motif_survivant(e, t, now)
@@ -612,6 +654,45 @@ def alertes_survivants(st, sv, frais, sent_this_hour):
     return nb
 
 
+# ---------------------------------------------------------------- Momentum (observation)
+MOM_MAX_PAR_RELEVE = 5        # au plus 5 nouveaux par relevé (vérification de sécurité incluse)
+
+
+def momentum_observation(st, sv, frais):
+    """Enregistre (sans rien envoyer) les tokens « momentum confirmé » pour mesurer leur gain simulé."""
+    now = time.time()
+    vus = st.setdefault("mom_vus", {})
+    for k in [k for k, ts in vus.items() if now - ts > 48 * 3600]:
+        del vus[k]
+    deja = {a["key"] for a in st["alerts"] if now - a["ts"] < 48 * 3600}
+    n = 0
+    for t in sorted(frais, key=lambda t: -t["vol_1h"]):
+        if n >= MOM_MAX_PAR_RELEVE:
+            break
+        e = sv["tokens"].get(t["key"])
+        if not e or t["key"] in vus or t["key"] in deja:
+            continue
+        m = suivi.motif_momentum(e, t, now)
+        if not m:
+            continue
+        vus[t["key"]] = now
+        ok, sec_txt = securite(t)
+        sec_inconnue = False
+        if not ok and t["chain"] in v.CHAINES_OBS and ("indisponible" in sec_txt or "inconnue" in sec_txt):
+            ok, sec_inconnue = True, True      # Robinhood : pas de scanner sûr, on note quand même
+        if not ok:
+            continue
+        n += 1
+        st["alerts"].append({"ts": now, "type": "momentum", "observation": True, "key": t["key"],
+                             "symbol": t["symbol"], "chain": t["chain"], "address": t["address"],
+                             "price": t["price"], "mcap": t["mcap"], "url": t["dexscreener"],
+                             "fort": suivi.force_relative(sv, t)[0], "cause": bool(caritatif(t)),
+                             "securite_inconnue": sec_inconnue, **m})
+        suivi.ajouter(sv, t, garder=True)
+    if n:
+        print(f"momentum : {n} token(s) enregistré(s) en observation")
+
+
 # ---------------------------------------------------------------- Bilan quotidien
 def bilan_quotidien(st, sv, pf, forcer=False):
     now = time.time()
@@ -632,6 +713,13 @@ def bilan_quotidien(st, sv, pf, forcer=False):
             a["peak"] = max(a.get("peak") or a["price"], t["price"])
         elif a["key"] in manquants and frais:
             a["mort"] = True                       # disparu de DexScreener
+    # alertes jamais suivies toutes les 30 min (anciennes versions du bot) : sans ça leur gain simulé
+    # comptait 0 € au lieu d'une perte. On rejoue la règle avec le plus haut connu puis le prix actuel.
+    for a in alertes + signaux:
+        if "sim" not in a and a.get("price"):
+            suivi.simuler(a, (a.get("peak") or a["price"]) / a["price"])
+            dernier = 0.0 if a.get("mort") and not a.get("last") else (a.get("last") or a["price"])
+            suivi.simuler(a, dernier / a["price"], fin=bool(a.get("mort")))
 
     def perf(a):
         p0 = a["price"] or 1e-18
@@ -653,6 +741,14 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     for typ, titre in (("classique", "🚨 Classiques"), ("survivant", "🌱 Survivants")):
         lignes += resume([a for a in alertes if a.get("type", "classique") == typ
                           and not a.get("observation")], titre)
+        if typ == "classique":       # tes gagnants ont été repérés vers 400 k$ - 1 M$ : on compare
+            cl = [a for a in alertes if a.get("type", "classique") == "classique" and not a.get("observation")]
+            lignes += resume([a for a in cl if a["mcap"] < 250_000], "   dont mcap < 250 k$ à l'alerte")
+            lignes += resume([a for a in cl if a["mcap"] >= 250_000], "   dont mcap ≥ 250 k$ à l'alerte")
+    lignes += resume([a for a in alertes if a.get("type") == "momentum" and a["chain"] not in v.CHAINES_OBS],
+                     "🚀 Momentum confirmé (observation)")
+    lignes += resume([a for a in alertes if a.get("type") == "momentum" and a["chain"] in v.CHAINES_OBS],
+                     "🟣 Momentum sur Robinhood Chain (observation, sécurité souvent non vérifiée)")
     narr = [a for a in alertes if a.get("type") == "narratif"]
     lignes += resume([a for a in narr if not a.get("observation")], "🧩 Narratifs envoyés")
     lignes += resume([a for a in narr if a.get("etoile")], "   dont ⭐ profil SEALS")
@@ -682,10 +778,11 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     recentes = sorted((a for a in alertes + signaux if now - a["ts"] < 86400), key=lambda a: a["ts"])
     if recentes:
         lignes.append("\n<b>Dernières 24 h :</b>")
-        icones = {"classique": "🚨", "survivant": "🌱", "narratif": "🧩"}
+        icones = {"classique": "🚨", "survivant": "🌱", "narratif": "🧩", "momentum": "🚀"}
         for a in recentes:
             xn, pk = perf(a)
-            ic = "🐋" if "wallets" in a else icones.get(a.get("type", "classique"), "•")
+            ic = "🐋" if "wallets" in a else ("🟣" if a.get("chain") in v.CHAINES_OBS
+                                              else icones.get(a.get("type", "classique"), "•"))
             fin = "mort ☠️" if a.get("mort") or xn < 0.1 else f"maintenant x{xn:.2f}"
             note = (" (trop tard)" if a.get("trop_tard") else "") + (
                 " (obs.)" if a.get("observation") or ("wallets" in a and not a.get("envoye")) else "")
