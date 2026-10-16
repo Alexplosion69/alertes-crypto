@@ -29,6 +29,7 @@ from pathlib import Path
 
 import requests
 
+import baleines
 import outils as v
 
 FICHIER = Path("alertes/positions.json")
@@ -53,7 +54,9 @@ AIDE = ("🤖 <b>Suivi de tes positions</b>\n"
         "(aussi : <code>quart</code>, <code>moitie</code>, <code>tout</code>)\n"
         "Les % portent toujours sur ce qui reste : 25 % puis « tout » = 100 % vendu, jamais 125 %.\n"
         "Ajoute la mcap de vente si tu veux : <code>/vente SEALS 50% 1.8M</code>\n"
-        "<code>/positions</code> : le point tout de suite\n\n"
+        "<code>/positions</code> : le point tout de suite\n"
+        "<code>/baleine NOM ADRESSE</code> : suivre les achats d'une baleine Fomo "
+        "(<code>/baleines</code> pour la liste, <code>/retire NOM</code>)\n\n"
         "Je te préviens à x2, x3, x5, x10…, à −30 % et −50 %, si ça perd 30 % depuis le plus haut, "
         "et si la liquidité fond.")
 
@@ -197,6 +200,12 @@ def commandes(p):
                 cmd_achat(p, mots[1:])
             elif cmd in ("vente", "vendu", "sell"):
                 cmd_vente(p, mots[1:])
+            elif cmd == "baleine":
+                baleines.cmd_baleine(mots[1:], envoyer)
+            elif cmd == "baleines":
+                baleines.cmd_liste(envoyer)
+            elif cmd == "retire":
+                baleines.cmd_retire(mots[1:], envoyer)
             elif cmd in ("positions", "pos", "point"):
                 envoyer(resume(p, maintenant=True))
             elif cmd in ("aide", "help", "start") or texte.startswith("/"):
@@ -474,13 +483,15 @@ def epingle(p):
 
 def tick(p):
     """Appelé toutes les ~15 s par la boucle principale."""
-    if not p.get("menu"):                # le menu « / » de Telegram affiche les commandes
+    if p.get("menu") != 2:               # le menu « / » de Telegram affiche les commandes (v2)
         d = api("setMyCommands", commands=[
             {"command": "achat", "description": "ajouter une position : /achat ADRESSE 84k"},
             {"command": "vente", "description": "/vente SYMBOLE 25% (ou moitie, tout) [mcap]"},
             {"command": "positions", "description": "où en sont mes positions"},
+            {"command": "baleine", "description": "suivre une baleine : /baleine NOM ADRESSE"},
+            {"command": "baleines", "description": "liste des baleines suivies"},
             {"command": "aide", "description": "rappel des commandes"}])
-        p["menu"] = bool((d or {}).get("ok"))
+        p["menu"] = 2 if (d or {}).get("ok") else 0
     commandes(p)
     if time.time() - p["derniere_verif"] >= VERIF_S:
         p["derniere_verif"] = time.time()

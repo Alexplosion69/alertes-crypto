@@ -25,6 +25,7 @@ from pathlib import Path
 
 import requests
 
+import baleines
 import devs
 import outils as v  # briques communes : API gratuites, wash trading, GoPlus
 import portefeuilles
@@ -574,6 +575,10 @@ def cycle(st, sent_this_hour, sv, pf):
         sent_this_hour[0] += 1 if ok else 0
         return ok
     portefeuilles.collecter(pf, sv, securite, envoyer)
+    try:
+        baleines.surveiller(st, sv, lambda t: suivi.ajouter(sv, t, garder=True), envoyer)
+    except Exception as e:                 # une source indisponible ne doit pas bloquer le reste
+        print(f"[warn] baleines : {type(e).__name__}")
     bilan_quotidien(st, sv, pf)
 
 
@@ -756,6 +761,8 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     lignes += resume([a for a in narr if a.get("identite") == "dediee"], "🪪 Narratifs avec compte X à leur nom")
     lignes += resume([a for a in narr if a.get("identite") == "tweet"], "🪪 Narratifs « tokens de tweet »")
     lignes += resume([a for a in alertes if a.get("cause")], "🎗️ Tokens pour une cause (tous types)")
+    lignes += resume([a for a in alertes if a.get("type") == "baleines"],
+                     f"🐳 Baleines Fomo ({baleines.BALEINES_MIN}+ sur le même token en {baleines.FENETRE_H} h)")
     lignes += resume([s for s in signaux if not s["trop_tard"]], "🐋 Smart wallets à temps (observation)")
     lignes += resume([s for s in signaux if s["trop_tard"]], "🐋 Smart wallets trop tard (observation)")
 
@@ -778,7 +785,7 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     recentes = sorted((a for a in alertes + signaux if now - a["ts"] < 86400), key=lambda a: a["ts"])
     if recentes:
         lignes.append("\n<b>Dernières 24 h :</b>")
-        icones = {"classique": "🚨", "survivant": "🌱", "narratif": "🧩", "momentum": "🚀"}
+        icones = {"classique": "🚨", "survivant": "🌱", "narratif": "🧩", "momentum": "🚀", "baleines": "🐳"}
         for a in recentes:
             xn, pk = perf(a)
             ic = "🐋" if "wallets" in a else ("🟣" if a.get("chain") in v.CHAINES_OBS
@@ -792,6 +799,9 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     lignes.append(f"\n🐋 Base de wallets : {n_w} observés, {n_smart} « smart » "
                   f"(≥ {portefeuilles.SMART_MIN_BONS_COUPS} coups à x{portefeuilles.BON_COUP_X}, "
                   f"≥ {int(portefeuilles.SMART_MIN_TAUX * 100)} % de réussite)")
+    nb_b, ach_b = baleines.stats()
+    if nb_b:
+        lignes.append(f"🐳 {nb_b} baleine(s) Fomo suivie(s), {ach_b} achat(s) repéré(s) en 24 h")
     lignes.append(f"👀 {len(sv['tokens'])} tokens suivis en ce moment")
     lignes.append("<i>« plus haut » = mesuré toutes les 30 min, le vrai sommet a pu être un peu plus haut.</i>")
     texte = "\n".join(lignes)
@@ -810,6 +820,7 @@ def main(mode):
     pf = portefeuilles.charger()
     pos = positions.charger()
     devs.charger()
+    baleines.charger()
     if mode == "bilan":
         bilan_quotidien(st, sv, pf, forcer=True)
         save_state(st)
@@ -832,6 +843,7 @@ def main(mode):
         suivi.sauver(sv)
         portefeuilles.sauver(pf)
         devs.sauver()
+        baleines.sauver()
         # entre deux cycles : tes commandes Telegram et tes positions, toutes les ~15 s
         while True:
             try:

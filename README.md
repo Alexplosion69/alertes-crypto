@@ -10,6 +10,7 @@ Ce dépôt t'envoie sur Telegram :
 | 🧩 | **Narratif** | un nom cloné en masse : le bot signale le leader, **avant que la foule arrive** |
 | 📊 | **Bilan quotidien** | chaque matin vers 9 h : ce que sont devenues les alertes, et le **gain simulé** en € |
 | 📌 | **Tes positions** | tu dis au bot ce que tu as acheté, il te prévient à x2, x3… ou si ça chute |
+| 🐳 | **Baleines Fomo** | tu donnes les wallets des meilleurs traders Fomo, le bot repère quand plusieurs achètent le même token (*observation*) |
 
 Chaque alerte passe par la sécurité (RugCheck / GoPlus) et le **filtre dev** 👤, et affiche
 l'**identité** 🪪 du token (compte X à son nom, site… ou simple lien vers le tweet de quelqu'un)
@@ -48,9 +49,9 @@ Ton bot et tes secrets ne changent pas, et la mémoire du bot (alertes déjà en
 
 1. Dézippe `alertes-crypto.zip`.
 2. Sur GitHub, dans ton dépôt `alertes-crypto` : **Add file** → **Upload files**.
-3. Glisse-dépose ces **9 fichiers** (ceux qui existent déjà seront remplacés) :
+3. Glisse-dépose ces **10 fichiers** (ceux qui existent déjà seront remplacés) :
    `alertes.py`, `outils.py`, `devs.py`, `suivi.py`, `portefeuilles.py`, `positions.py`,
-   `portefeuilles_manuels.txt`, `requirements.txt`, `README.md`.
+   `baleines.py`, `portefeuilles_manuels.txt`, `requirements.txt`, `README.md`.
 4. **Commit changes**.
 5. *(Facultatif, pour avoir le bouton « bilan maintenant »)* ouvre
    `.github/workflows/alertes.yml` → crayon ✏️ → remplace la ligne
@@ -190,8 +191,8 @@ Copie-le (juste les chiffres) dans ton fichier texte.
 
 1. Dézippe `alertes-crypto.zip` sur ton ordinateur.
 2. Dans le nouveau dépôt : **Add file** → **Upload files**.
-3. Glisse-dépose ces **9 fichiers** : `alertes.py`, `outils.py`, `devs.py`, `suivi.py`,
-   `portefeuilles.py`, `positions.py`, `portefeuilles_manuels.txt`, `requirements.txt`,
+3. Glisse-dépose ces **10 fichiers** : `alertes.py`, `outils.py`, `devs.py`, `suivi.py`,
+   `portefeuilles.py`, `positions.py`, `baleines.py`, `portefeuilles_manuels.txt`, `requirements.txt`,
    `README.md` (il remplace celui créé automatiquement).
 4. Clique sur **Commit changes**.
 
@@ -252,6 +253,9 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # facultatifs (baleines Fomo) : RPC Solana plus fiable, clé Blockscout pour Robinhood Chain
+          SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+          BLOCKSCOUT_API_KEY: ${{ secrets.BLOCKSCOUT_API_KEY }}
         run: python alertes.py ${{ inputs.mode || 'loop' }}
 
       # dépôt public : GitHub coupe les tâches programmées après 60 jours sans activité.
@@ -273,7 +277,7 @@ jobs:
 
 ✅ **Vérification** : la page d'accueil du dépôt affiche le dossier `.github` et les fichiers
 `README.md`, `alertes.py`, `outils.py`, `devs.py`, `suivi.py`, `portefeuilles.py`, `positions.py`,
-`portefeuilles_manuels.txt`, `requirements.txt`.
+`baleines.py`, `portefeuilles_manuels.txt`, `requirements.txt`.
 
 ---
 
@@ -483,6 +487,41 @@ Le bot suit maintenant cette chaîne **en observation seulement** :
 
 Si la ligne 🟣 du bilan est bonne pendant une à deux semaines, et que la question de la sécurité
 est réglée, on en fera de vraies alertes.
+
+### Les baleines Fomo 🐳 (observation)
+
+Le classement Fomo (24 h, 7 jours, 30 jours) montre les meilleurs traders. L'idée : suivre leurs
+wallets et être prévenu quand **au moins 2 d'entre eux achètent le même token en moins de 3 h**.
+
+**1. Trouver les adresses.** Le profil Fomo affiche les stats mais pas l'adresse du wallet. Des
+outils de type « FOMO Wallet Finder » donnent, pour un profil, son adresse **Solana** et son
+adresse **EVM** (0x…). Prends de préférence des traders réguliers sur 30 jours, pas juste le
+coup de chance des dernières 24 h.
+
+**2. Les donner au bot**, dans Telegram :
+- `/baleine Jamjam ADRESSE_SOLANA 0xADRESSE_EVM` (une seule des deux adresses suffit) ;
+- `/baleines` pour la liste et le nombre d'achats vus en 24 h ;
+- `/retire Jamjam` pour en enlever une.
+
+**3. Ce que fait le bot.** À chaque cycle, il lit les derniers achats de chaque baleine :
+- Solana : ses dernières transactions (RPC public gratuit) ;
+- Base et Robinhood Chain : les tokens reçus par le wallet (explorateurs Blockscout gratuits) ;
+- BNB : pas couvert (pas de source gratuite sans clé).
+Les tokens reçus sans liquidité (spam envoyé aux gros wallets) sont ignorés. Quand 2 baleines
+ou plus achètent le même token en moins de 3 h, c'est un **signal 🐳** : il est suivi et compté
+dans le bilan (gain simulé), **sans alerte** pour l'instant. Si le bilan est bon, on passe
+`EN_DIRECT = True` dans `baleines.py` : tu recevras alors « 🐳 2 baleines Fomo ont acheté $X ».
+
+**Facultatif, pour plus de fiabilité :** le RPC Solana public limite les appels, et Robinhood
+Chain peut demander une clé. Tu peux ajouter deux secrets GitHub (Partie 4, même méthode) :
+`SOLANA_RPC_URL` (une adresse RPC avec clé gratuite, par exemple chez Helius) et
+`BLOCKSCOUT_API_KEY` (clé gratuite sur dev.blockscout.com). Pour qu'ils soient pris en compte,
+remplace aussi le fichier `.github/workflows/alertes.yml` par celui du zip. Sans eux, tout marche
+quand même, avec un peu moins de fiabilité.
+
+> Limite honnête : tu achèteras toujours **après** les baleines, et un trader très suivi sur
+> Fomo fait monter le prix rien qu'en achetant (ses copieurs suivent). C'est exactement ce que le
+> bilan va mesurer : est-ce qu'il reste quelque chose à gagner quand 2 baleines ont déjà acheté ?
 
 ### La force relative 💪
 
@@ -732,7 +771,7 @@ et regarde les dernières lignes.
 | `[warn] 429` | Trop d'appels aux API gratuites | Rien à faire, le script attend et réessaie |
 | `0 alerte(s)` tout le temps pendant des jours | Conditions trop strictes pour le marché du moment | Baisse un peu `ACHETEURS_1H_MIN` ou `HAUSSE_1H_MIN` |
 | Le workflow n'apparaît pas dans **Actions** | Fichier `.yml` mal placé | Il doit être dans `.github/workflows/alertes.yml` |
-| `ModuleNotFoundError: No module named 'devs'` (ou `suivi`, `portefeuilles`, `positions`) | Un des nouveaux fichiers n'a pas été envoyé | Refais l'étape 3 de la mise à jour avec les 9 fichiers |
+| `ModuleNotFoundError: No module named 'devs'` (ou `suivi`, `portefeuilles`, `positions`, `baleines`) | Un des nouveaux fichiers n'a pas été envoyé | Refais l'étape 3 de la mise à jour avec les 10 fichiers |
 | Le bot ne répond pas à `/achat` | La surveillance est entre deux exécutions (quelques minutes chaque heure) ou en plein cycle | Attends 3-5 min ; s'il ne répond toujours pas, regarde le log de la dernière exécution |
 | `wallets : 0 observés` pendant plusieurs heures | GeckoTerminal refuse la lecture des transactions | Rien de grave : les autres alertes marchent ; envoie le log à Claude |
 
