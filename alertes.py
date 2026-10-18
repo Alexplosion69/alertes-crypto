@@ -65,6 +65,8 @@ NARR_ECART_MIN = 2            # volume du leader ≥ 2x celui du n°2 (le march�
 NARR_HAUSSE_MAX = 300         # leader déjà à plus de +300 % sur 1 h : trop tard
 NARR_ACHETEURS_MIN = 100      # acheteurs uniques du leader sur 1 h
 NARR_REALERTE_H = 12          # pas deux alertes pour le même narratif en 12 h
+NARR_AGE_MAX_H = 72           # au-delà de 3 jours, un token ne peut pas être le leader d'un narratif
+NARR_CHUTE_1H_MAX = -10       # leader en baisse de plus de 10 % sur 1 h : pas d'alerte
 # Avant la foule : sur les 7 premiers narratifs, les 2 qui ont doublé (SEALS x10, COWE x2,3)
 # avaient 354 et 768 acheteurs/h et 26-42 k$ de volume à l'alerte ; les 5 morts en avaient
 # 1 400 à 3 100 et 170-590 k$ : la foule était déjà là, c'était le sommet.
@@ -285,6 +287,10 @@ def narratifs(st, tokens, sent_this_hour, sv):
             continue
         membres = sorted(membres + meme_nom(nom, membres[0]["symbol"], {m["key"] for m in membres}),
                          key=lambda t: t["vol_1h"], reverse=True)
+        # un token de plusieurs semaines n'est pas le leader d'un narratif de 3 h (DOTS, 17/10 : 18 jours)
+        membres = [m for m in membres if m["age_h"] <= NARR_AGE_MAX_H]
+        if not membres:
+            continue
         leader = membres[0]
         # un token plus ancien (≥ 1 h d'avance) et au moins aussi liquide : souvent l'original
         ancien = max((m for m in membres if m["age_h"] >= leader["age_h"] + 1 and m["liq"] >= leader["liq"]),
@@ -296,7 +302,8 @@ def narratifs(st, tokens, sent_this_hour, sv):
         if original:
             second_vol = min(second_vol, leader["vol_1h"] / NARR_ECART_MIN)  # pas d'exigence d'écart
         if not (leader["liq"] >= NARR_LEADER_LIQ_MIN and leader["vol_1h"] >= NARR_LEADER_VOL_MIN
-                and leader["chg_1h"] <= NARR_HAUSSE_MAX and leader.get("chg_5m", 0) > CHUTE_5M_MAX
+                and NARR_CHUTE_1H_MAX < leader["chg_1h"] <= NARR_HAUSSE_MAX
+                and leader.get("chg_5m", 0) > CHUTE_5M_MAX
                 and leader["vol_1h"] >= NARR_ECART_MIN * max(second_vol, 1)):
             print(f"narratif « {nom} » ({len(ks)} tokens) : pas de leader net pour l'instant")
             continue

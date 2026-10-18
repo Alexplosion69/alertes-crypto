@@ -143,10 +143,14 @@ def rafraichir(s, listes_suivies):
         elif now - e["ajoute"] > SUIVI_JOURS * 86400 and now > e.get("garder_jusqua", 0):
             fins.append(k)
     # humeur du marché : médiane des variations des memecoins suivis
-    ch6 = sorted(t["chg_6h"] for t in frais if t["chg_6h"] is not None)
-    ch24 = sorted(t["chg_24h"] for t in frais if t["chg_24h"] is not None)
+    # seulement les tokens encore échangés : les tokens morts (0 % faute d'échanges) faussaient la
+    # médiane, qui affichait toujours +0 %
+    actifs = [t for t in frais if t["vol_6h"] >= 5_000]
+    ch6 = sorted(t["chg_6h"] for t in actifs)
+    ch24 = sorted(t["chg_24h"] for t in actifs if t["vol_24h"] >= 5_000)
     if len(ch6) >= FORCE_MIN_TOKENS:
-        s["marche"] = {"med_6h": round(ch6[len(ch6) // 2], 1), "med_24h": round(ch24[len(ch24) // 2], 1),
+        s["marche"] = {"med_6h": round(ch6[len(ch6) // 2], 1),
+                       "med_24h": round(ch24[len(ch24) // 2], 1) if ch24 else 0.0,
                        "n": len(ch6), "ts": round(now)}
     # plus haut, prix actuel et gain simulé des alertes / signaux envoyés (pour le bilan)
     for lst in listes_suivies:
