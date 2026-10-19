@@ -75,6 +75,8 @@ NARR_ACHETEURS_MAX = 1200     # au-delà : narratif saturé -> pas envoyé (gard
 NARR_VOL_1H_MAX = 150_000     # idem pour le volume du leader sur 1 h
 NARR_ETOILE_ECART = 5         # ⭐ profil SEALS : leader écrasant (≥ 5x le volume du n°2)…
 NARR_ETOILE_AGE_H = 1.5       # …et qui a déjà survécu 1 h 30 (SEALS : x25 et 2,1 h)
+CLASSIQUES_EN_DIRECT = False  # 19/10 : -28 % simulés sur 7 j -> enregistrées pour le bilan seulement
+MOMENTUM_EN_DIRECT = True     # 19/10 : seule catégorie gagnante (+10 % hors meilleur coup) -> envoyé
 NARRATIFS_EN_DIRECT = True    # False : enregistrés pour le bilan seulement (1 sur 5 au 13/10 : SEALS x10)
 
 # --- Survivants (les critères de forme sont dans suivi.py)
@@ -525,7 +527,7 @@ def cycle(st, sent_this_hour, sv, pf):
             print(f"écarté {t['symbol']} : {sec_txt}")
             st["rejected"][t["key"]] = now  # on ne revérifie pas avant 1 h
             continue
-        if sent_this_hour[0] >= MAX_ALERTES_HEURE:
+        if CLASSIQUES_EN_DIRECT and sent_this_hour[0] >= MAX_ALERTES_HEURE:
             print(f"limite d'alertes atteinte, {t['symbol']} non envoyé")
             continue
 
@@ -549,11 +551,13 @@ def cycle(st, sent_this_hour, sv, pf):
             f"<a href=\"{t['dexscreener']}\">Voir sur DexScreener</a>",
             "<i>Signal automatique, pas un conseil. Petite mise seulement.</i>",
         ]
-        if telegram("\n".join(x for x in lignes if x)):
-            sent_this_hour[0] += 1
+        envoye = telegram("\n".join(x for x in lignes if x)) if CLASSIQUES_EN_DIRECT else False
+        if envoye or not CLASSIQUES_EN_DIRECT:
+            if envoye:
+                sent_this_hour[0] += 1
             nb += 1
             st["alerted"][t["key"]] = now
-            st["alerts"].append({"ts": now, "type": "classique", "key": t["key"],
+            st["alerts"].append({"ts": now, "type": "classique", "observation": not envoye, "key": t["key"],
                                  "symbol": t["symbol"], "chain": t["chain"], "address": t["address"],
                                  "price": t["price"], "mcap": t["mcap"], "url": t["dexscreener"],
                                  "fort": fort, "cause": bool(caritatif(t))})
@@ -571,7 +575,7 @@ def cycle(st, sent_this_hour, sv, pf):
             devs.marquer_mort(k)
         suivi.retirer(sv, morts + fins)
         nb_s = alertes_survivants(st, sv, frais, sent_this_hour)
-        momentum_observation(st, sv, frais)
+        momentum_observation(st, sv, frais, sent_this_hour)
         n_w, n_smart = portefeuilles.stats(pf)
         print(f"suivi : {len(sv['tokens'])} tokens, {len(morts)} morts, {nb_s} survivant(s) ; "
               f"wallets : {n_w} observés, {n_smart} smart")
@@ -670,8 +674,9 @@ def alertes_survivants(st, sv, frais, sent_this_hour):
 MOM_MAX_PAR_RELEVE = 5        # au plus 5 nouveaux par relevé (vérification de sécurité incluse)
 
 
-def momentum_observation(st, sv, frais):
-    """Enregistre (sans rien envoyer) les tokens « momentum confirmé » pour mesurer leur gain simulé."""
+def momentum_observation(st, sv, frais, sent_this_hour=None):
+    """Tokens « momentum confirmé » : envoyés en direct (MOMENTUM_EN_DIRECT, hors Robinhood Chain)
+    et toujours enregistrés pour mesurer leur gain simulé."""
     now = time.time()
     vus = st.setdefault("mom_vus", {})
     for k in [k for k, ts in vus.items() if now - ts > 48 * 3600]:
@@ -695,14 +700,36 @@ def momentum_observation(st, sv, frais):
         if not ok:
             continue
         n += 1
-        st["alerts"].append({"ts": now, "type": "momentum", "observation": True, "key": t["key"],
+        envoye = False
+        if (MOMENTUM_EN_DIRECT and not sec_inconnue and t["chain"] not in v.CHAINES_OBS
+                and (sent_this_hour is None or sent_this_hour[0] < MAX_ALERTES_HEURE)):
+            fort, force_txt = suivi.force_relative(sv, t)
+            lignes = [
+                f"🚀 <b>Momentum confirmé : ${html.escape(str(t['symbol']))}</b> ({t['chain']}) — "
+                f"{t['age_h']:.0f} h" + (" 💪" if fort else ""),
+                f"mcap {fmt_usd(t['mcap'])} · liq {fmt_usd(t['liq'])} ({m['liq_pct']:.0f} %) · "
+                f"vol 1 h {fmt_usd(t['vol_1h'])}",
+                f"📈 {t['chg_6h']:+.0f} % sur 6 h · {t['chg_1h']:+.0f} % sur 1 h · "
+                f"{m['depuis_haut_pct']:+.0f} % depuis son plus haut",
+                f"👥 {t['buys_6h']} achats / {t['sells_6h']} ventes sur 6 h",
+                f"🪪 {identite(t)[1]}",
+                force_txt,
+                f"🛡️ {sec_txt}",
+                f"<a href=\"{t['dexscreener']}\">Voir sur DexScreener</a>",
+                "<i>Token déjà installé qui continue de monter. Pas un conseil : petite mise, "
+                "moitié vendue à x2, coupé à −50 %.</i>",
+            ]
+            envoye = telegram("\n".join(x for x in lignes if x))
+            if envoye and sent_this_hour is not None:
+                sent_this_hour[0] += 1
+        st["alerts"].append({"ts": now, "type": "momentum", "observation": not envoye, "key": t["key"],
                              "symbol": t["symbol"], "chain": t["chain"], "address": t["address"],
                              "price": t["price"], "mcap": t["mcap"], "url": t["dexscreener"],
                              "fort": suivi.force_relative(sv, t)[0], "cause": bool(caritatif(t)),
                              "securite_inconnue": sec_inconnue, **m})
         suivi.ajouter(sv, t, garder=True)
     if n:
-        print(f"momentum : {n} token(s) enregistré(s) en observation")
+        print(f"momentum : {n} token(s) enregistré(s)" + (" et envoyé(s)" if MOMENTUM_EN_DIRECT else ""))
 
 
 # ---------------------------------------------------------------- Bilan quotidien
@@ -789,15 +816,17 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         return [txt]
 
     lignes = ["📊 <b>Bilan quotidien</b> (7 derniers jours, prix au moment de l'alerte → maintenant)"]
-    for typ, titre in (("classique", "🚨 Classiques"), ("survivant", "🌱 Survivants")):
+    titre_cl = "🚨 Classiques" + ("" if CLASSIQUES_EN_DIRECT else " (observation depuis le 19/10)")
+    for typ, titre in (("classique", titre_cl), ("survivant", "🌱 Survivants")):
         lignes += resume([a for a in alertes if a.get("type", "classique") == typ
-                          and not a.get("observation")], titre)
+                          and (typ == "classique" or not a.get("observation"))], titre)
         if typ == "classique":       # tes gagnants ont été repérés vers 400 k$ - 1 M$ : on compare
-            cl = [a for a in alertes if a.get("type", "classique") == "classique" and not a.get("observation")]
+            cl = [a for a in alertes if a.get("type", "classique") == "classique"]
             lignes += resume([a for a in cl if a["mcap"] < 250_000], "   dont mcap &lt; 250 k$ à l'alerte")
             lignes += resume([a for a in cl if a["mcap"] >= 250_000], "   dont mcap ≥ 250 k$ à l'alerte")
     lignes += resume([a for a in alertes if a.get("type") == "momentum" and a["chain"] not in v.CHAINES_OBS],
-                     "🚀 Momentum confirmé (observation)")
+                     "🚀 Momentum confirmé" + (" (en direct depuis le 19/10)" if MOMENTUM_EN_DIRECT
+                                              else " (observation)"))
     lignes += resume([a for a in alertes if a.get("type") == "momentum" and a["chain"] in v.CHAINES_OBS],
                      "🟣 Momentum sur Robinhood Chain (observation, sécurité souvent non vérifiée)")
     narr = [a for a in alertes if a.get("type") == "narratif"]

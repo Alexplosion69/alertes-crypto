@@ -61,6 +61,14 @@ C'est tout. À la prochaine heure, le bot tourne avec les nouveautés. Les alert
 d'au moins 6 h de suivi avant de pouvoir partir, et la base de smart wallets se construit
 toute seule en **une à deux semaines** (voir plus bas).
 
+### 19 octobre au soir : le momentum passe en direct, les classiques en observation
+
+Après 7 jours de bilan, les alertes 🚨 classiques perdaient environ 28 % de la mise simulée, et le
+🚀 momentum confirmé était la seule catégorie gagnante (environ +10 % sans son meilleur coup). Le
+bot envoie donc maintenant le momentum confirmé (hors Robinhood Chain) et garde les classiques en
+observation : elles restent comptées dans le bilan. Pour revenir en arrière : `CLASSIQUES_EN_DIRECT`
+et `MOMENTUM_EN_DIRECT` en haut de `alertes.py`.
+
 ### Mise à jour du 19 octobre : 84 baleines chargées d'office
 
 Le fichier `baleines_liste.txt` contient 84 wallets Solana de traders **réguliers** (classements
