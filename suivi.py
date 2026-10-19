@@ -158,6 +158,8 @@ def rafraichir(s, listes_suivies):
             if now - a["ts"] > SUIVI_JOURS * 86400 or not a.get("price"):
                 continue
             t = by_key.get(a["key"])
+            if t and not releve_coherent(a, t["price"], t["mcap"]):
+                t = None                    # prix aberrant (changement de paire, bug de cotation) : ignoré
             if t:
                 a["last"], a["last_mcap"] = t["price"], t["mcap"]
                 a["peak"] = max(a.get("peak") or a["price"], t["price"])
@@ -166,6 +168,25 @@ def rafraichir(s, listes_suivies):
                 a["mort"] = True
                 simuler(a, (a.get("last") or 0) / a["price"], fin=True)
     return frais, morts, fins
+
+
+X_MAX = 500          # au-delà, un « x » mesuré en 7 jours est presque toujours un bug de prix
+
+
+def releve_coherent(a, prix, mcap):
+    """Un relevé n'est gardé que si le prix et la capitalisation racontent la même histoire.
+    Quand DexScreener change de paire de référence (paire en MUSK4, BNCB, WBTC…), le prix en $
+    peut être faux d'un facteur 1000 alors que la capitalisation, elle, reste cohérente."""
+    if not a.get("price") or not prix:
+        return False
+    x_prix = prix / a["price"]
+    if x_prix > X_MAX:
+        return False
+    if a.get("mcap") and mcap:
+        ecart = x_prix / (mcap / a["mcap"])
+        if ecart > 3 or ecart < 1 / 3:
+            return False
+    return True
 
 
 def simuler(a, x, fin=False):
@@ -177,6 +198,7 @@ def simuler(a, x, fin=False):
     s = a.setdefault("sim", {"cash": 0.0, "reste": 1.0, "haut": 1.0, "moitie": False})
     if s["reste"] <= 0:
         return
+    x = min(x, X_MAX)
     s["haut"] = max(s["haut"], x)
     if not s["moitie"]:
         if s["haut"] >= 2:
@@ -196,7 +218,7 @@ def resultat_sim(a):
     s = a.get("sim")
     if not s:
         return 0.0
-    x = (a.get("last") or a["price"]) / a["price"] if a.get("price") else 0
+    x = min((a.get("last") or a["price"]) / a["price"], X_MAX) if a.get("price") else 0
     return round(s["cash"] + s["reste"] * x - 1, 2)
 
 

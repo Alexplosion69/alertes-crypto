@@ -16,6 +16,7 @@ Toutes les alertes passent par la sécurité (RugCheck / GoPlus) et le filtre de
 Variables d'environnement : TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 Gratuit : DexScreener, GeckoTerminal, RugCheck, GoPlus. Pas de X ni de Claude ici.
 """
+import html
 import json
 import os
 import re
@@ -731,12 +732,23 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         return
     alertes = [a for a in st["alerts"] if now - a["ts"] < 7 * 86400]
     signaux = [s for s in pf["signaux"] if now - s["ts"] < 7 * 86400]
+    # alertes faussées par un ancien relevé aberrant (avant le contrôle prix / capitalisation) :
+    # on efface leur historique, il est recalculé avec des relevés cohérents
+    for a in alertes + signaux:
+        if a.get("price") and ((a.get("peak") or 0) / a["price"] > suivi.X_MAX
+                               or (a.get("last") and not suivi.releve_coherent(a, a["last"], a.get("last_mcap")))
+                               or suivi.resultat_sim(a) > suivi.X_MAX):
+            for cle in ("sim", "peak", "last", "last_mcap"):
+                a.pop(cle, None)
+            print(f"[info] relevé aberrant effacé : {a.get('symbol')}")
     # prix actuel des tokens qui ne sont plus dans le suivi (anciennes alertes)
     manquants = {a["key"]: {"chain": a["chain"], "address": a["address"], "sources": [], "boost": 0}
                  for a in alertes + signaux if a["key"] not in sv["tokens"] and not a.get("mort")}
     frais = {t["key"]: t for t in v.enrich(manquants)} if manquants else {}
     for a in alertes + signaux:
         t = frais.get(a["key"])
+        if t and not suivi.releve_coherent(a, t["price"], t["mcap"]):
+            continue
         if t:
             a["last"], a["last_mcap"] = t["price"], t["mcap"]
             a["peak"] = max(a.get("peak") or a["price"], t["price"])
@@ -772,7 +784,7 @@ def bilan_quotidien(st, sv, pf, forcer=False):
                           and not a.get("observation")], titre)
         if typ == "classique":       # tes gagnants ont été repérés vers 400 k$ - 1 M$ : on compare
             cl = [a for a in alertes if a.get("type", "classique") == "classique" and not a.get("observation")]
-            lignes += resume([a for a in cl if a["mcap"] < 250_000], "   dont mcap < 250 k$ à l'alerte")
+            lignes += resume([a for a in cl if a["mcap"] < 250_000], "   dont mcap &lt; 250 k$ à l'alerte")
             lignes += resume([a for a in cl if a["mcap"] >= 250_000], "   dont mcap ≥ 250 k$ à l'alerte")
     lignes += resume([a for a in alertes if a.get("type") == "momentum" and a["chain"] not in v.CHAINES_OBS],
                      "🚀 Momentum confirmé (observation)")
@@ -817,7 +829,7 @@ def bilan_quotidien(st, sv, pf, forcer=False):
             fin = "mort ☠️" if a.get("mort") or xn < 0.1 else f"maintenant x{xn:.2f}"
             note = (" (trop tard)" if a.get("trop_tard") else "") + (
                 " (obs.)" if a.get("observation") or ("wallets" in a and not a.get("envoye")) else "")
-            lignes.append(f"{ic} ${a['symbol']}{note} : mcap {fmt_usd(a['mcap'])} · plus haut x{pk:.1f} · {fin}"
+            lignes.append(f"{ic} ${html.escape(str(a['symbol']))}{note} : mcap {fmt_usd(a['mcap'])} · plus haut x{pk:.1f} · {fin}"
                           f" · simulé {suivi.resultat_sim(a):+.2f} €")
     n_w, n_smart = portefeuilles.stats(pf)
     lignes.append(f"\n🐋 Base de wallets : {n_w} observés, {n_smart} « smart » "
