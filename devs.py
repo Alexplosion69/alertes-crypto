@@ -8,11 +8,14 @@ On s'en sert comme filtre de sécurité, pour écarter :
   - le dev en série (beaucoup de tokens lancés) ou récidiviste (ses tokens précédents sont morts).
 
 Sources gratuites : RugCheck (rapport complet, Solana), GoPlus (Base/BNB),
-et notre propre mémoire des devs déjà croisés (alertes/devs.json).
+le RPC public de BNB / Base (nombre de transactions du créateur : un robot qui lance des tokens
+à la chaîne en a des milliers), et notre propre mémoire des devs déjà croisés (alertes/devs.json).
 """
 import json
 import time
 from pathlib import Path
+
+import requests
 
 import outils as v
 
@@ -20,8 +23,11 @@ DEV_DETIENT_MAX = 5      # % de l'offre encore détenu par le dev
 INITIES_MAX = 15         # % détenu par des wallets initiés (liés) dans le top 20
 DEV_SERIE_MAX = 5        # le dev a déjà créé 5 autres tokens ou plus (RugCheck ou notre mémoire)
 DEV_MORTS_MAX = 2        # 2 tokens de ce dev déjà morts sous nos yeux : récidiviste
+DEV_ROBOT_TX = 1000      # créateur EVM avec 1000 transactions ou plus : robot lanceur en série
 PLATEFORME_MIN = 30      # « créateur » vu sur 30 tokens ou plus : c'est une plateforme, pas un dev
 MEMOIRE_JOURS = 30
+
+RPC_EVM = {"bsc": "https://bsc-dataseed.binance.org", "base": "https://mainnet.base.org"}
 
 FICHIER = Path("alertes/devs.json")
 _mem = {"devs": {}, "par_token": {}}
@@ -110,6 +116,31 @@ def rugcheck(address):
     }
 
 
+# ---------------------------------------------------------------- créateur EVM (BNB / Base)
+def _rpc_evm(chain, methode, params):
+    try:
+        r = requests.post(RPC_EVM[chain], json={"jsonrpc": "2.0", "id": 1, "method": methode,
+                                                 "params": params}, timeout=15)
+        return r.json().get("result") if r.status_code == 200 else None
+    except (requests.RequestException, ValueError, KeyError):
+        return None
+
+
+def activite_evm(chain, adresse):
+    """(est_un_contrat, nombre_de_transactions) du créateur, ou (None, None) si indisponible."""
+    if chain not in RPC_EVM or not adresse:
+        return None, None
+    code = _rpc_evm(chain, "eth_getCode", [adresse, "latest"])
+    nonce = _rpc_evm(chain, "eth_getTransactionCount", [adresse, "latest"])
+    # « 0xef0100… » = wallet ordinaire délégué (EIP-7702), pas un contrat de plateforme
+    contrat = None if code is None else (code not in ("0x", "0x0") and not code.startswith("0xef0100"))
+    try:
+        nb = int(nonce, 16) if nonce else None
+    except (TypeError, ValueError):
+        nb = None
+    return contrat, nb
+
+
 # ---------------------------------------------------------------- verdict
 def verdict(t, createur, dev_pct=None, inities_pct=None, nb_tokens_dev=None):
     """Renvoie (ok, texte court). Inconnu ≠ dangereux : un dev non identifié n'est pas rejeté."""
@@ -120,10 +151,20 @@ def verdict(t, createur, dev_pct=None, inities_pct=None, nb_tokens_dev=None):
     if not createur:
         return True, "dev non identifié"
     if t["chain"] != "solana":
-        # Base/BNB : le « créateur » est souvent le contrat de la plateforme de lancement
-        # (four.meme, Clanker…) ; on ne juge que la part qu'il détient
+        # Base/BNB : le « créateur » est parfois le contrat de la plateforme de lancement
+        # (four.meme, Clanker…). Si c'est un vrai wallet, on regarde son activité.
         txt = f"créateur détient {dev_pct:.0f} %" if dev_pct is not None else "part du créateur inconnue"
-        return True, txt
+        contrat, nb_tx = activite_evm(t["chain"], createur)
+        if contrat or contrat is None:
+            return True, txt
+        if nb_tx is not None and nb_tx >= DEV_ROBOT_TX:
+            return False, (f"créateur = robot lanceur en série ({nb_tx} transactions, "
+                           f"il lance et revend des tokens à la chaîne)")
+        noter(t["chain"], createur, t["key"])
+        vus, morts = historique(t["chain"], createur, t["key"])
+        if morts >= DEV_MORTS_MAX:
+            return False, f"dev récidiviste : {morts} de ses tokens précédents sont morts"
+        return True, txt + (f", wallet créateur : {nb_tx} transactions" if nb_tx is not None else "")
     noter(t["chain"], createur, t["key"])
     vus, morts = historique(t["chain"], createur, t["key"])
     if vus >= PLATEFORME_MIN:
