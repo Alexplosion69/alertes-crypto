@@ -213,6 +213,34 @@ def simuler(a, x, fin=False):
         s["reste"] = 0.0
 
 
+MISE_SIM = 2.0         # mise simulée en €, comme tes vrais trades
+FRAIS_PCT = 0.005      # frais Fomo par ordre (0,45 % constaté, arrondi par prudence)…
+FRAIS_MIN = 0.10       # …avec un minimum de 0,10 € par ordre (achat comme vente)
+
+
+def _frais(valeur):
+    """Frais d'un ordre, en fraction de la mise, pour un ordre valant `valeur` mises."""
+    return max(FRAIS_PCT * valeur * MISE_SIM, FRAIS_MIN) / MISE_SIM
+
+
+def resultat_sim_net(a):
+    """Comme resultat_sim, mais après frais : achat, vente de la moitié à x2, vente du reste.
+    Un reste qui ne vaut plus rien n'est pas vendu (pas de frais dessus). Pour 1 € de mise."""
+    s = a.get("sim")
+    if not s:
+        return 0.0
+    x = min((a.get("last") or a["price"]) / a["price"], X_MAX) if a.get("price") else 0
+    frais = _frais(1.0)                                   # achat
+    if s["moitie"]:
+        frais += _frais(1.0)                              # moitié vendue à x2 (vaut 1 mise)
+        final = s["reste"] * x if s["reste"] > 0 else s["cash"] - 1.0
+    else:
+        final = s["reste"] * x if s["reste"] > 0 else s["cash"]
+    if final * MISE_SIM > FRAIS_MIN:                      # sinon on ne prend pas la peine de vendre
+        frais += _frais(final)
+    return round(resultat_sim(a) - frais, 2)
+
+
 def resultat_sim(a):
     """Gain (ou perte) en € pour 1 € misé, positions encore ouvertes comptées au dernier prix."""
     s = a.get("sim")

@@ -801,17 +801,20 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         x2 = sum(1 for _, pk in xs if pk >= 2)
         morts = sum(1 for (xn, _), a in zip(xs, liste) if a.get("mort") or xn < 0.1)
         hausse = sum(1 for xn, _ in xs if xn > 1)
-        gains = [suivi.resultat_sim(a) for a in liste]
+        brut = sum(suivi.resultat_sim(a) for a in liste)
+        gains = [suivi.resultat_sim_net(a) for a in liste]
         gain = sum(gains)
+        m = suivi.MISE_SIM
         txt = (f"<b>{titre}</b> : {len(liste)} · x2 touché : {x2} · en hausse : {hausse} · morts : {morts}"
-               f"\n   💶 gain simulé : <b>{gain:+.2f} €</b> pour {len(liste)} € misés")
+               f"\n   💶 après frais : <b>{gain * m:+.2f} €</b> pour {len(liste) * m:.0f} € misés "
+               f"({gain / len(liste) * 100:+.0f} %) · sans frais : {brut * m:+.2f} €")
         # si une seule alerte pèse plus de la moitié du gain, on la nomme (à vérifier à la main :
         # un x énorme peut être un vrai coup… ou un prix mal coté par DexScreener)
         i = max(range(len(liste)), key=lambda j: gains[j])
         if gains[i] >= 5 and gains[i] > 0.5 * max(gain, 0.01):
             a = liste[i]
-            txt += (f"\n   ↳ dont <b>{gains[i]:+.2f} €</b> pour ${html.escape(str(a.get('symbol')))} seul "
-                    f"(plus haut x{xs[i][1]:.0f}) · sans lui : {gain - gains[i]:+.2f} €"
+            txt += (f"\n   ↳ dont <b>{gains[i] * m:+.2f} €</b> pour ${html.escape(str(a.get('symbol')))} seul "
+                    f"(plus haut x{xs[i][1]:.0f}) · sans lui : {(gain - gains[i]) * m:+.2f} €"
                     + (f" · <a href=\"{a['url']}\">vérifier</a>" if a.get("url") else ""))
         return [txt]
 
@@ -845,8 +848,9 @@ def bilan_quotidien(st, sv, pf, forcer=False):
                      "💪 Alertes en force relative")
     lignes += resume([a for a in alertes if a.get("fort") is False and not a.get("observation")],
                      "   alertes sans force relative (pour comparer)")
-    lignes.append("<i>💶 gain simulé = 1 € par alerte, moitié vendue à x2, tout coupé à −50 % avant ça, "
-                  "le reste vendu s'il retombe à x1 ou perd 50 % depuis son plus haut.</i>")
+    lignes.append(f"<i>💶 gain simulé = {suivi.MISE_SIM:.0f} € par alerte, moitié vendue à x2, tout coupé à −50 % "
+                  "avant ça, le reste vendu s'il retombe à x1 ou perd 50 % depuis son plus haut. Frais Fomo : "
+                  f"{suivi.FRAIS_PCT * 100:.1f} % par ordre, {suivi.FRAIS_MIN:.2f} € minimum (achat et chaque vente).</i>")
     pf_pos = positions.charger()
     j = positions.journal_txt(pf_pos, jours=7)
     if j or pf_pos["positions"]:
@@ -869,7 +873,7 @@ def bilan_quotidien(st, sv, pf, forcer=False):
             note = (" (trop tard)" if a.get("trop_tard") else "") + (
                 " (obs.)" if a.get("observation") or ("wallets" in a and not a.get("envoye")) else "")
             lignes.append(f"{ic} ${html.escape(str(a['symbol']))}{note} : mcap {fmt_usd(a['mcap'])} · plus haut x{pk:.1f} · {fin}"
-                          f" · simulé {suivi.resultat_sim(a):+.2f} €")
+                          f" · simulé {suivi.resultat_sim_net(a) * suivi.MISE_SIM:+.2f} €")
     n_w, n_smart = portefeuilles.stats(pf)
     lignes.append(f"\n🐋 Base de wallets : {n_w} observés, {n_smart} « smart » "
                   f"(≥ {portefeuilles.SMART_MIN_BONS_COUPS} coups à x{portefeuilles.BON_COUP_X}, "
