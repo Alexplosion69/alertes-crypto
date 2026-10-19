@@ -837,7 +837,8 @@ def bilan_quotidien(st, sv, pf, forcer=False):
                   f"≥ {int(portefeuilles.SMART_MIN_TAUX * 100)} % de réussite)")
     nb_b, ach_b = baleines.stats()
     if nb_b:
-        lignes.append(f"🐳 {nb_b} baleine(s) Fomo suivie(s), {ach_b} achat(s) repéré(s) en 24 h")
+        lignes.append(f"🐳 {nb_b} baleine(s) suivie(s), {ach_b} achat(s) repéré(s) en 24 h\n   "
+                      + html.escape(baleines.etat_rpc()))
     lignes.append(f"👀 {len(sv['tokens'])} tokens suivis en ce moment")
     lignes.append("<i>« plus haut » = mesuré toutes les 30 min, le vrai sommet a pu être un peu plus haut.</i>")
     if envoyer_long("\n".join(lignes)):

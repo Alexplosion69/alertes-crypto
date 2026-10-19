@@ -44,7 +44,18 @@ SIG_PAR_WALLET = 8            # transactions Solana lues par wallet et par cycle
 BUDGET_S = 110                # temps max passé sur les baleines à chaque cycle (le reste continue)
 PAUSE_RPC = 0.15              # pause entre deux appels au RPC Solana public (limite de débit)
 ACHATS_JOURS = 3
-SOL_RPC = os.getenv("SOLANA_RPC_URL", "").strip() or "https://api.mainnet-beta.solana.com"
+def _rpc_url():
+    """Accepte l'adresse complète OU la clé Helius seule (on reconstruit alors l'adresse)."""
+    brut = os.getenv("SOLANA_RPC_URL", "").strip()
+    if not brut:
+        return "https://api.mainnet-beta.solana.com", "RPC public gratuit (pas de secret SOLANA_RPC_URL)"
+    if brut.startswith("http"):
+        return brut, "Helius" if "helius" in brut else "RPC perso"
+    return f"https://mainnet.helius-rpc.com/?api-key={brut}", "Helius (clé seule, adresse reconstruite)"
+
+
+SOL_RPC, SOL_RPC_NOM = _rpc_url()
+_rpc_stats = {"ok": 0, "echecs": 0, "derniere_erreur": ""}
 BLOCKSCOUT = {"base": "https://base.blockscout.com",
               "robinhood": "https://robinhoodchain.blockscout.com"}
 BLOCKSCOUT_PRO = {"robinhood": "4663"}   # API Blockscout « PRO » (clé gratuite) en secours
@@ -72,7 +83,14 @@ def charger():
                  ("retirees", []), ("tour", 0)):
         _etat.setdefault(k, d)
     charger_liste()
+    tester_rpc()
     return _etat
+
+
+def tester_rpc():
+    """Un appel léger pour vérifier tout de suite que la connexion Solana marche."""
+    _rpc("getSlot", [])
+    print(f"baleines : {etat_rpc()}")
 
 
 def charger_liste():
@@ -149,7 +167,8 @@ def cmd_liste(envoyer):
     nb_liste = sum(1 for b in _etat["baleines"].values() if b.get("liste"))
     lignes = [f"🐳 <b>{len(_etat['baleines'])} baleine(s) suivie(s)</b> "
               f"({nb_liste} de la liste, {len(_etat['baleines']) - nb_liste} ajoutée(s) à la main)",
-              f"{len(actifs)} ont acheté quelque chose dans les dernières 24 h."]
+              f"{len(actifs)} ont acheté quelque chose dans les dernières 24 h.",
+              etat_rpc()]
     if len(_etat["baleines"]) <= 30:
         for nom, b in sorted(_etat["baleines"].items()):
             chaines = "/".join(x for x, k in (("Sol", "sol"), ("EVM", "evm")) if b.get(k))
@@ -180,10 +199,32 @@ def _rpc(methode, params):
         r = requests.post(SOL_RPC, json={"jsonrpc": "2.0", "id": 1, "method": methode, "params": params},
                           timeout=20)
         if r.status_code != 200:
+            _rpc_stats["echecs"] += 1
+            _rpc_stats["derniere_erreur"] = f"HTTP {r.status_code}"
             return None
-        return r.json().get("result")
-    except (requests.RequestException, ValueError):
+        d = r.json()
+        if "error" in d:
+            _rpc_stats["echecs"] += 1
+            _rpc_stats["derniere_erreur"] = str((d.get("error") or {}).get("message", "erreur"))[:80]
+            return None
+        _rpc_stats["ok"] += 1
+        return d.get("result")
+    except (requests.RequestException, ValueError) as e:
+        _rpc_stats["echecs"] += 1
+        _rpc_stats["derniere_erreur"] = type(e).__name__
         return None
+
+
+def etat_rpc():
+    """Une ligne lisible : quelle connexion Solana, et est-ce qu'elle répond."""
+    total = _rpc_stats["ok"] + _rpc_stats["echecs"]
+    if not total:
+        return f"connexion Solana : {SOL_RPC_NOM}, pas encore testée"
+    taux = 100 * _rpc_stats["ok"] / total
+    txt = f"connexion Solana : {SOL_RPC_NOM}, {taux:.0f} % de réponses OK"
+    if _rpc_stats["echecs"]:
+        txt += f" (dernière erreur : {_rpc_stats['derniere_erreur']})"
+    return ("✅ " if taux >= 80 else "⚠️ ") + txt
 
 
 def achats_solana(nom, adresse):
