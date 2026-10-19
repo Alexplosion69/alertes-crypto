@@ -213,7 +213,7 @@ def simuler(a, x, fin=False):
         s["reste"] = 0.0
 
 
-MISE_SIM = 2.0         # mise simulée en €, comme tes vrais trades
+MISE_SIM = 5.0         # mise simulée en € : à 5 €, la coupure à −50 % reste vendable (minimum ~2 $)
 FRAIS_PCT = 0.005      # frais Fomo par ordre (0,45 % constaté, arrondi par prudence)…
 FRAIS_MIN = 0.10       # …avec un minimum de 0,10 € par ordre (achat comme vente)
 
