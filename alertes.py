@@ -774,9 +774,19 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         x2 = sum(1 for _, pk in xs if pk >= 2)
         morts = sum(1 for (xn, _), a in zip(xs, liste) if a.get("mort") or xn < 0.1)
         hausse = sum(1 for xn, _ in xs if xn > 1)
-        gain = sum(suivi.resultat_sim(a) for a in liste)
-        return [f"<b>{titre}</b> : {len(liste)} · x2 touché : {x2} · en hausse : {hausse} · morts : {morts}"
-                f"\n   💶 gain simulé : <b>{gain:+.2f} €</b> pour {len(liste)} € misés"]
+        gains = [suivi.resultat_sim(a) for a in liste]
+        gain = sum(gains)
+        txt = (f"<b>{titre}</b> : {len(liste)} · x2 touché : {x2} · en hausse : {hausse} · morts : {morts}"
+               f"\n   💶 gain simulé : <b>{gain:+.2f} €</b> pour {len(liste)} € misés")
+        # si une seule alerte pèse plus de la moitié du gain, on la nomme (à vérifier à la main :
+        # un x énorme peut être un vrai coup… ou un prix mal coté par DexScreener)
+        i = max(range(len(liste)), key=lambda j: gains[j])
+        if gains[i] >= 5 and gains[i] > 0.5 * max(gain, 0.01):
+            a = liste[i]
+            txt += (f"\n   ↳ dont <b>{gains[i]:+.2f} €</b> pour ${html.escape(str(a.get('symbol')))} seul "
+                    f"(plus haut x{xs[i][1]:.0f}) · sans lui : {gain - gains[i]:+.2f} €"
+                    + (f" · <a href=\"{a['url']}\">vérifier</a>" if a.get("url") else ""))
+        return [txt]
 
     lignes = ["📊 <b>Bilan quotidien</b> (7 derniers jours, prix au moment de l'alerte → maintenant)"]
     for typ, titre in (("classique", "🚨 Classiques"), ("survivant", "🌱 Survivants")):
