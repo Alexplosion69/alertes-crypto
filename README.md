@@ -61,6 +61,20 @@ C'est tout. À la prochaine heure, le bot tourne avec les nouveautés. Les alert
 d'au moins 6 h de suivi avant de pouvoir partir, et la base de smart wallets se construit
 toute seule en **une à deux semaines** (voir plus bas).
 
+### Mise à jour du 19 octobre : 84 baleines chargées d'office
+
+Le fichier `baleines_liste.txt` contient 84 wallets Solana de traders **réguliers** (classements
+Kolscan et traders Fomo de Solana Tracker, croisés sur plusieurs périodes). Le bot les charge
+tout seul au lancement, tu n'as rien à taper. Le signal 🐳 demande maintenant **3 baleines** sur
+le même token en moins de 3 h, et reste en observation (bilan quotidien) au départ.
+
+- Retirer une baleine : `/retire NOM` sur Telegram (elle ne revient pas), ou supprime sa ligne.
+- En ajouter : `/baleine NOM ADRESSE` comme avant, ou une ligne dans le fichier.
+- **Conseillé** : avec autant de wallets, le RPC Solana public est lent et limité. Crée une clé
+  gratuite sur helius.dev, puis ajoute un secret GitHub `SOLANA_RPC_URL` avec l'adresse
+  `https://mainnet.helius-rpc.com/?api-key=TA_CLE`. Sans clé, ça marche quand même : le bot lit
+  une partie des wallets à chaque cycle et fait le tour en quelques cycles.
+
 ---
 
 > 💡 Comme pour la première installation, ouvre un fichier texte temporaire sur ton ordinateur

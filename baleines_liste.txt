@@ -1,0 +1,95 @@
+# Baleines suivies automatiquement par le bot (signal 🐳).
+# Format : NOM ADRESSE   # commentaire. Une baleine par ligne ; tout ce qui suit # est ignoré.
+# Relevé du 19/10/2026 : classements Kolscan (Solana, 30 j / 7 j / 24 h) et Solana Tracker
+# (traders Fomo, 7 j / 30 j / 90 j). Gardés : présents dans au moins 2 classements, actifs depuis
+# moins de 7 jours, au moins 30 % de trades gagnants et 10 tokens différents, pas de bot.
+# Tier A = présent sur toutes les périodes ; tier B = sur deux périodes.
+# Pour en retirer une : supprime la ligne ici, ou tape /retire NOM sur Telegram.
+
+# ---- Kolscan (traders Solana suivis publiquement)
+decu                      4vw54BmAogeRV3vPKWyFet5yf8DTLcREzdSzx4rw9Ud9  # tier A · kolscan mois #1 (2663.49 SOL), semaine #3
+trunoest                  ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT   # tier A · kolscan mois #2 (2155.67 SOL), semaine #4
+OGAntD                    215nhcAHjQQGgwpQSJQ7zR26etbjjtVdW74NLzwEgQjP  # tier A · kolscan mois #3 (1972.05 SOL), semaine #2
+milito                    EeXvxkcGqMDZeTaVeawzxm9mbzZwqDUMmfG3bF7uzumH  # tier A · kolscan mois #5 (1053.51 SOL), semaine #6
+ban                       EqiFgyNw6kgrmYstWyrP8VjKhka7XEmKTZzHSmwpr1Zb  # tier A · kolscan mois #7 (891.56 SOL), semaine #8
+Kadenox                   B32QbbdDAyhvUQzjcaM5j6ZVKwjCxAwGH5Xgvb9SJqnC  # tier A · kolscan mois #8 (864.99 SOL), semaine #29
+Sheep                     78N177fzNJpp8pG49xDv1efYcTMSzo9tPTKEA9mAVkh2  # tier A · kolscan mois #9 (849.29 SOL), semaine #34
+EustazZ                   FqamE7xrahg7FEWoByrx1o8SeyHt44rpmE6ZQfT7zrve  # tier A · kolscan mois #10 (837.92 SOL), semaine #25
+Art                       CgaA9a1JwAXJyfHuvZ7VW8YfTVRkdiT5mjBBSKcg7Rz5  # tier A · kolscan mois #13 (655.49 SOL), semaine #17
+slingoor                  5YRgrP3mjGzrzirYYN5HAQH19cTYREYwGxW6XRJQUzij  # tier A · kolscan mois #14 (588.36 SOL), semaine #1
+Daumen                    8MaVa9kdt3NW4Q5HyNAm1X5LbR8PQRVDc1W8NMVK88D5  # tier A · kolscan mois #15 (563.24 SOL), semaine #19
+KOREAN                    6KR7SorsUQtNH6CB6JpAnWCAKeTysa95iyXeWihdNeGT  # tier A · kolscan mois #16 (534.76 SOL), semaine #35
+Johnson                   J9TYAsWWidbrcZybmLSfrLzryANf4CgJBLdvwdGuC8MB  # tier A · kolscan mois #19 (474.02 SOL), semaine #12
+Latuche                   GJA1HEbxGnqBhBifH9uQauzXSB53to5rhDrzmKxhSU65  # tier A · kolscan mois #20 (468.63 SOL), semaine #16
+Jijo                      4BdKaxN8G6ka4GYtQQWk4G4dZRUTX2vQH9GcXdBREFUk  # tier A · kolscan mois #21 (466.94 SOL), semaine #18
+Putrick                   AVjEtg2ECYKXYeqdRQXvaaAZBjfTjYuSMTR4WLhKoeQN  # tier A · kolscan mois #23 (460.77 SOL), semaine #26
+Zef                       EjtQrPTbcMevStBkpnjsH23NfUCMhGHusTYsHuGVQZp2  # tier A · kolscan mois #25 (421.7 SOL), semaine #15
+Coler                     99xnE2zEFi8YhmKDaikc1EvH6ELTQJppnqUwMzmpLXrs  # tier A · kolscan mois #29 (362.49 SOL), semaine #36
+TheDoc                    DYAn4XpAkN5mhiXkRB7dGq4Jadnx6XYgu8L5b3WGhbrt  # tier A · kolscan mois #30 (332.87 SOL), semaine #40
+radiance                  FAicXNV5FVqtfbpn4Zccs71XcfGeyxBSGbqLDyDJZjke  # tier A · kolscan mois #33 (295.95 SOL), semaine #9
+CookDoc                   Dvbv5TdAyPpJk16X9mUxWFVicYtCUxTLhuof8TGuUaRv  # tier A · kolscan mois #35 (275.06 SOL), semaine #11
+Gfree                     4yo9CUuTBbds9NFhZd4MzPiZZkUvveXdTnAH8qMsE8ku  # tier A · kolscan mois #36 (262.65 SOL), semaine #20
+Pikalosi                  9cdZg6xR4c9kZiqKSzqjn4QHCXNQuC9HEWBzzMJ3mzqw  # tier A · kolscan mois #42 (191.41 SOL), semaine #21
+CoCo                      FqojC24nUn3x6oMQC2ypBHmtH7rFAnKS6DvwsJoCMaiv  # tier A · kolscan mois #43 (180.46 SOL), semaine #28
+Doji                      5ZuV8eqkvzYFVEKbLvGBdexL2tFv7E5BCd2HZpjqbdg   # tier A · kolscan mois #47 (144.42 SOL), semaine #22
+Wugi                      862TYSvRYoiHAK3F3WwTRYAfuGiQaGdxedN9AGvRGWo2  # tier B · kolscan mois #11 (720.28 SOL), semaine #10
+Killua                    95TWoKkvv2z85EXBzd2z6NwbxH2f54AvwuCA9x3NoKep  # tier B · kolscan mois #22 (464.53 SOL), semaine #7
+Reljoo                    FsG3BaPmRTdSrPaivbgJsFNCCa8cPfkUtk8VLWXkHpHP  # tier B · kolscan mois #27 (394.3 SOL), semaine #5
+Yami                      7Js5gmq57y9jG2sseKrAeJt3vbncSWSFFHDEsyJDnyVm  # tier B · kolscan mois #28 (371.95 SOL), semaine #24
+Megga                     H31vEBxSJk1nQdUN11qZgZyhScyShhscKhvhZZU3dQoU  # tier B · kolscan mois #32 (309.19 SOL), semaine #33
+Meechie                   9iaawVBEsFG35PSwd4PahwT8fYNQe9XYuRdWm872dUqY  # tier B · kolscan mois #34 (292.01 SOL), semaine #14
+Publix                    86AEJExyjeNNgcp7GrAvCXTDicf5aGWgoERbXFiG1EdD  # tier B · kolscan mois #37 (260.27 SOL), semaine #39
+Toxicweast                DU323DieHUGPmYamp6A4Ai1V4YSYgRi35mGpzJGrjf7k  # tier B · kolscan mois #45 (167.24 SOL), semaine #43
+hood                      91sP85Ds9A4EXJ3gU3iHyLtUNJimxz8LrxRb2qhBNod9  # tier B · kolscan mois #46 (156.48 SOL), semaine #45
+Advyth                    GEKZWL474tFAyYDUoTgKEgYuMxT3Se7HzKDDptrnXnvS  # tier B · kolscan mois #50 (124.91 SOL), semaine #42
+
+# ---- Traders Fomo (Solana Tracker)
+ultrapara                 AnCMde5PQzP7hVQmh5TeeCiUgGAqTY8kK9d9o91nEs3Q  # tier A · fomo 30j 297k$, réussite 52 %, 59 tokens, 7j+90j
+bigbabbajohnson           mDR91ufq4S2uSHa9E2PYL7xg4LwcQXaQFP7YK864a1z   # tier A · fomo 30j 294k$, réussite 60 %, 866 tokens, 7j+90j
+MrFernando                AUYLj5kLGUadmhn8kM91KnTJYfHiXGzcQ7TViP8uLLQv  # tier A · fomo 30j 235k$, réussite 35 %, 211 tokens, 7j+90j
+DjR3m1                    DjR3m1Gd9qvcX5XsnCke4BqPx8MmhBk4rNnhfjy1yWpa  # tier A · fomo 30j 184k$, réussite 47 %, 132 tokens, 7j+90j
+Tekkerrss                 7UBjMaYsE3tKcanfgGrtso6aHAMhVNSVHkkX5j3t7f5y  # tier A · fomo 30j 183k$, réussite 44 %, 1100 tokens, 7j+90j
+vvvvvvvvvv                4Bc4Ue2G37zoQCiksAvwMgXQQJFKcYQThnoHPKizAmWB  # tier A · fomo 30j 171k$, réussite 55 %, 270 tokens, 7j+90j
+ShillCap                  6bxz5E93NJBXqubkT72nLzkkz9j2PMBbfPKi6qxGYXdW  # tier A · fomo 30j 158k$, réussite 47 %, 303 tokens, 7j+90j
+Nach                      GAsnqm4XkNkPVgrAofNQ65jWf8f3tKCLHhE9ZqSy2AP1  # tier A · fomo 30j 142k$, réussite 44 %, 250 tokens, 7j+90j
+Files                     9oC3XYAs2oeU39NeNFke8m3JGixMq7g8PfANsmsbKR8W  # tier A · fomo 30j 132k$, réussite 37 %, 1500 tokens, 7j+90j
+numero                    7XUAo3ugnHFtUgUamYB2rxhXPDCgz8zSbTausvriAs3p  # tier A · fomo 30j 115k$, réussite 47 %, 560 tokens, 7j+90j
+Clark                     BSsyo5oh2tuaZBjjWq6V3NHS66BTHfmV1aJd6RDyknLQ  # tier A · fomo 30j 114k$, réussite 31 %, 430 tokens, 7j+90j
+kimchi                    AosepN8EQoch2n3tv3UJ8n2ENy1sFqAikHWXKK4Mcjwr  # tier A · fomo 30j 92k$, réussite 63 %, 248 tokens, 7j+90j
+prevaile                  EzKDs32Qd396gg48HZKGibvfAdS27KTmcCfdEp6euSLt  # tier A · fomo 30j 88k$, réussite 43 %, 1800 tokens, 7j+90j
+BIGWARZ                   FRT8YuLJ9q8PPX2o4RUiJ9hWL427hNmMJ2M6JdgGgzwK  # tier A · fomo 30j 74k$, réussite 73 %, 621 tokens, 7j+90j
+frank                     498g1rVnFcnjBjpfw1xyqA1WvgQXUU8RWuELjxkjAayQ  # tier B · fomo 30j 922k$, réussite 60 %, 902 tokens, 90j
+ExactTallTakin            AGdtsMmphhymH5wYW3dWKSkAxpLYRrNDCTFAfuq8ii9v  # tier B · fomo 30j 810k$, réussite 44 %, 144 tokens, 90j
+Zapoleon                  HvvEk6DkVfri3xGqvh4KK3eVqtGT6RRvdWaaKBA5j1gV  # tier B · fomo 30j 536k$, réussite 31 %, 30 tokens, 90j
+Theo                      EC2f5DnHzuNRit1ExqghSifDbp1wgrzktsRRZCtU92MJ  # tier B · fomo 30j 529k$, réussite 36 %, 437 tokens, 90j
+B3N_                      9PB1RLFsp65qLJ1SQMmcx2ff8Zn6cPYkYqMCWUfVC3sc  # tier B · fomo 30j 480k$, réussite 36 %, 105 tokens, 90j
+333                       5RZPhPW9qGEd3hRGibgYaF5Yk2jBzXR1VZMKSP71C3Lb  # tier B · fomo 30j 459k$, réussite 38 %, 383 tokens, 90j
+Swizzle                   CpKuhcFHogvrq7Fx3enu57xTRkh1WyzER1TVVBimC5mo  # tier B · fomo 30j 420k$, réussite 40 %, 150 tokens, 90j
+dontsleeponme             CPK7JrooiYRyuDJdaipR9uBVt1zC9jLSfgkH1qJEmWRi  # tier B · fomo 30j 300k$, réussite 34 %, 461 tokens, 90j
+CrudeStillGuan            2TyGCFChYFqaXjniSbpn9ggvLhKZ2LfGwY5TwLzwx9mb  # tier B · fomo 30j 283k$, réussite 50 %, 67 tokens, 90j
+wokkrr                    DS3ame4NpKrPBUXR1tkYbzgCUfT6tdFsu7EhMxLEVrpf  # tier B · fomo 30j 274k$, réussite 57 %, 36 tokens, 90j
+bystevenr                 AH75Bn6QHSt5K2Ad4p1otns3JTwpSJWZTwiwKWNhmnKx  # tier B · fomo 30j 191k$, réussite 51 %, 473 tokens, 7j+
+BTheBezel                 HWYpE693cw8AWxHSynrHhUsKDbfzubAFYWpTcMZdNWKR  # tier B · fomo 30j 173k$, réussite 35 %, 556 tokens, 90j
+Ransoze                   Hrc71cxFp5WMuy29vKgRNzHmtwM3tSKnHYXCsAtZiqRc  # tier B · fomo 30j 167k$, réussite 43 %, 205 tokens, 90j
+RC                        DxM1hfY8FQ8dNGrucuJzhJcF8KRbjk8WBwrgKvQ9spPv  # tier B · fomo 30j 161k$, réussite 44 %, 1200 tokens, 90j
+maxpain                   4hMB9bjcmyhpVdTmZQFPBwFCP2JmK2ChFmLCZCrNb3Gt  # tier B · fomo 30j 147k$, réussite 42 %, 92 tokens, 90j
+MrMetavers3               CnEy6EVjK6bGMC9wxChibpkUQGNYPHWHttD2LAHJLggB  # tier B · fomo 30j 146k$, réussite 40 %, 203 tokens, 90j
+Hn6vBW                    Hn6vBWWySnxA8XjxRQDEmZEuH5QL7KqosnJGcLcUzFJ6  # tier B · fomo 30j 144k$, réussite 58 %, 1800 tokens, 90j
+dengdestroyer             GDpqhJgwzg8zcoEmVvGDiVRVnaa797ryvPnNqQVBjQrN  # tier B · fomo 30j 131k$, réussite 39 %, 762 tokens, 90j
+LoganLim                  JDFDma1TMb1tWNFY1pruwCsHBybMdzwxveythZB2dcaG  # tier B · fomo 30j 125k$, réussite 56 %, 1200 tokens, 7j+
+Unipcs                    2heJbC32Tpfcb3nbUb5ER61K11FGZVfVGtVnDm6LDogF  # tier B · fomo 30j 120k$, réussite 97 %, 122 tokens, 7j+
+Garfold                   GAnh5kmx1xcDgsNAcTCqtnaQV44aCn4AbwuyJvWdF6ku  # tier B · fomo 30j 103k$, réussite 54 %, 87 tokens, 90j
+Cellar                    5qeQz8yDNob7qKpGWq9BpfMfmtyGhHKHqyVNQj5Thbik  # tier B · fomo 30j 89k$, réussite 42 %, 205 tokens, 90j
+Pax                       BQaB9nTUnBZUrMSv9tMEXQQtHz4QTK8m4Na36KoVJkip  # tier B · fomo 30j 89k$, réussite 45 %, 95 tokens, 90j
+maxx                      3YonHL3UNTv53MYFxyYAuaUwFjERNTJ8sUrgQS7BHuYq  # tier B · fomo 30j 89k$, réussite 54 %, 533 tokens, 90j
+Super526                  Hy9nGD51dgCterYWBetfrEnBxd5uqueYxpxyEZxVYemE  # tier B · fomo 30j 87k$, réussite 43 %, 1300 tokens, 90j
+Hv3a4P                    Hv3a4PaPvMPE5inwNoS27uFBRoeoJJMRSCJsKtExNH54  # tier B · fomo 30j 81k$, réussite 41 %, 268 tokens, 7j+
+juicy                     3MaAteeSjeovHX1HA3d54UZh2GAJAo5jH7BCSuaz9LSd  # tier B · fomo 30j 75k$, réussite 38 %, 73 tokens, 90j
+fomo-postingthistime      6nkRCrc1xANVGvvLzksjDWWdxAsmiBvxkwae6qc2U7Mb  # tier B · fomo 30j 74k$, réussite 47 %, 82 tokens, 90j
+excesscapital             5vh3TZMDWhP2WNJNtUjYYps21JPnY3HYpR13c22LBwAT  # tier B · fomo 30j 74k$, réussite 54 %, 22 tokens, 90j
+Vasco                     Xk9onqHkpULDEYYN9ZPyM7Q9AfTNYUrsCkzywyqdMeb   # tier B · fomo 30j 72k$, réussite 50 %, 705 tokens, 7j+
+misterpoogie              4tPEtSQsjwwKoWze5tUzThKzXaDCmwG8yLd4BgDpAZNr  # tier B · fomo 30j 72k$, réussite 41 %, 85 tokens, 7j+
+senegal                   FcELSqYLPzKymJxdTJvPM91pZ2o1H4rQV14hYdhCNxeo  # tier B · fomo 30j 69k$, réussite 53 %, 821 tokens, 7j+
+Spartee                   HPZJPCpMKEY1mBfvLE7RrwcpiQDncLY575dBgc6S9sJ1  # tier B · fomo 30j 66k$, réussite 31 %, 91 tokens, 90j
+xx                        8omxC22s8T42oJ7gB56i3kFUzT1651uf6QopE2scKTWG  # tier B · fomo 30j 61k$, réussite 32 %, 301 tokens, 90j
+hasty                     AC7Keg3V7p2vD8ps6sa8j2maY54hx8ssSyzPRpvKN3K5  # tier B · fomo 30j 58k$, réussite 38 %, 371 tokens, 7j+

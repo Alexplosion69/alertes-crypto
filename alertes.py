@@ -769,7 +769,7 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     lignes += resume([a for a in narr if a.get("identite") == "tweet"], "🪪 Narratifs « tokens de tweet »")
     lignes += resume([a for a in alertes if a.get("cause")], "🎗️ Tokens pour une cause (tous types)")
     lignes += resume([a for a in alertes if a.get("type") == "baleines"],
-                     f"🐳 Baleines Fomo ({baleines.BALEINES_MIN}+ sur le même token en {baleines.FENETRE_H} h)")
+                     f"🐳 Baleines ({baleines.BALEINES_MIN}+ sur le même token en {baleines.FENETRE_H} h)")
     lignes += resume([s for s in signaux if not s["trop_tard"]], "🐋 Smart wallets à temps (observation)")
     lignes += resume([s for s in signaux if s["trop_tard"]], "🐋 Smart wallets trop tard (observation)")
 
