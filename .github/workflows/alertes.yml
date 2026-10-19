@@ -6,10 +6,10 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "test = message Telegram de test, once = une vérification, loop = 52 min"
+        description: "test = message Telegram de test, once = une vérification, loop = 52 min, bilan = bilan tout de suite"
         default: "test"
         type: choice
-        options: [test, once, loop]
+        options: [test, once, loop, bilan]
 
 concurrency:
   group: alertes             # jamais deux surveillances en même temps

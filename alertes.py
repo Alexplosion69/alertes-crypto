@@ -586,7 +586,6 @@ def cycle(st, sent_this_hour, sv, pf):
         baleines.surveiller(st, sv, lambda t: suivi.ajouter(sv, t, garder=True), envoyer)
     except Exception as e:                 # une source indisponible ne doit pas bloquer le reste
         print(f"[warn] baleines : {type(e).__name__}")
-    bilan_quotidien(st, sv, pf)
 
 
 # ---------------------------------------------------------------- Survivants
@@ -706,12 +705,30 @@ def momentum_observation(st, sv, frais):
 
 
 # ---------------------------------------------------------------- Bilan quotidien
+def envoyer_long(texte):
+    """Envoie un long message en plusieurs morceaux, coupés entre deux lignes (jamais au milieu
+    d'une balise HTML, sinon Telegram refuse tout le message). Repli en texte brut si refusé."""
+    morceaux, cour = [], ""
+    for ligne in texte.split("\n"):
+        if cour and len(cour) + len(ligne) + 1 > 3800:
+            morceaux.append(cour)
+            cour = ""
+        cour = f"{cour}\n{ligne}" if cour else ligne
+    if cour:
+        morceaux.append(cour)
+    ok = True
+    for m in morceaux:
+        if not telegram(m):
+            ok = telegram(re.sub(r"<[^>]+>", "", m)) and ok   # balises en cause : texte brut
+    return ok
+
+
 def bilan_quotidien(st, sv, pf, forcer=False):
     now = time.time()
     jour = time.strftime("%Y-%m-%d", time.gmtime(now))
-    if not forcer and (time.gmtime(now).tm_hour != BILAN_HEURE_UTC or st.get("dernier_bilan") == jour):
+    # à partir de l'heure prévue, et tant qu'il n'est pas parti aujourd'hui (rattrapage si raté)
+    if not forcer and (time.gmtime(now).tm_hour < BILAN_HEURE_UTC or st.get("dernier_bilan") == jour):
         return
-    st["dernier_bilan"] = jour
     alertes = [a for a in st["alerts"] if now - a["ts"] < 7 * 86400]
     signaux = [s for s in pf["signaux"] if now - s["ts"] < 7 * 86400]
     # prix actuel des tokens qui ne sont plus dans le suivi (anciennes alertes)
@@ -811,10 +828,10 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         lignes.append(f"🐳 {nb_b} baleine(s) Fomo suivie(s), {ach_b} achat(s) repéré(s) en 24 h")
     lignes.append(f"👀 {len(sv['tokens'])} tokens suivis en ce moment")
     lignes.append("<i>« plus haut » = mesuré toutes les 30 min, le vrai sommet a pu être un peu plus haut.</i>")
-    texte = "\n".join(lignes)
-    if len(texte) > 3900:
-        texte = texte[:3850] + "\n…"
-    telegram(texte)
+    if envoyer_long("\n".join(lignes)):
+        st["dernier_bilan"] = jour             # marqué envoyé seulement si Telegram l'a accepté
+    else:
+        print("[warn] bilan non envoyé, nouvel essai au prochain cycle")
 
 
 def main(mode):
@@ -840,6 +857,10 @@ def main(mode):
         print(f"[warn] positions : {type(e).__name__}")
     while True:
         t0 = time.time()
+        try:                                 # le bilan passe en premier : une erreur ailleurs ne le bloque plus
+            bilan_quotidien(st, sv, pf)
+        except Exception as e:
+            print(f"[warn] bilan en erreur : {e!r}")
         try:
             cycle(st, sent, sv, pf)
         except Exception as e:  # une erreur ponctuelle ne doit pas tout arrêter
