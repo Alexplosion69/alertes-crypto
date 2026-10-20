@@ -76,6 +76,7 @@ NARR_VOL_1H_MAX = 150_000     # idem pour le volume du leader sur 1 h
 NARR_ETOILE_ECART = 5         # ⭐ profil SEALS : leader écrasant (≥ 5x le volume du n°2)…
 NARR_ETOILE_AGE_H = 1.5       # …et qui a déjà survécu 1 h 30 (SEALS : x25 et 2,1 h)
 CLASSIQUES_EN_DIRECT = False  # 19/10 : -28 % simulés sur 7 j -> enregistrées pour le bilan seulement
+X_ABERRANT = 50               # au-delà de x50 en 7 jours, une alerte est sortie des totaux (à vérifier)
 MOMENTUM_EN_DIRECT = True     # 19/10 : seule catégorie gagnante (+10 % hors meilleur coup) -> envoyé
 NARRATIFS_EN_DIRECT = True    # False : enregistrés pour le bilan seulement (1 sur 5 au 13/10 : SEALS x10)
 
@@ -726,7 +727,7 @@ def momentum_observation(st, sv, frais, sent_this_hour=None):
                              "symbol": t["symbol"], "chain": t["chain"], "address": t["address"],
                              "price": t["price"], "mcap": t["mcap"], "url": t["dexscreener"],
                              "fort": suivi.force_relative(sv, t)[0], "cause": bool(caritatif(t)),
-                             "securite_inconnue": sec_inconnue, **m})
+                             "securite_inconnue": sec_inconnue, "age_h": round(t["age_h"], 1), **m})
         suivi.ajouter(sv, t, garder=True)
     if n:
         print(f"momentum : {n} token(s) enregistré(s)" + (" et envoyé(s)" if MOMENTUM_EN_DIRECT else ""))
@@ -794,7 +795,12 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         x_now = 0.0 if a.get("mort") and not a.get("last") else (a.get("last") or a["price"]) / p0
         return x_now, (a.get("peak") or a["price"]) / p0
 
+    def aberrant(a):
+        return a.get("price") and (a.get("peak") or a["price"]) / a["price"] > X_ABERRANT
+
     def resume(liste, titre):
+        exclus = [a for a in liste if aberrant(a)]
+        liste = [a for a in liste if not aberrant(a)]
         if not liste:
             return []
         xs = [perf(a) for a in liste]
@@ -816,7 +822,21 @@ def bilan_quotidien(st, sv, pf, forcer=False):
             txt += (f"\n   ↳ dont <b>{gains[i] * m:+.2f} €</b> pour ${html.escape(str(a.get('symbol')))} seul "
                     f"(plus haut x{xs[i][1]:.0f}) · sans lui : {(gain - gains[i]) * m:+.2f} €"
                     + (f" · <a href=\"{a['url']}\">vérifier</a>" if a.get("url") else ""))
+        for a in exclus:
+            pk = (a.get("peak") or a["price"]) / a["price"]
+            txt += (f"\n   ↳ hors total : ${html.escape(str(a.get('symbol')))} (plus haut x{pk:.0f}, "
+                    f"invraisemblable : prix mal coté ou token piégé)")
         return [txt]
+
+    def detail(liste, label):
+        """Ligne courte pour comparer des sous-groupes d'une même catégorie."""
+        liste = [a for a in liste if not aberrant(a)]
+        if not liste:
+            return []
+        g = sum(suivi.resultat_sim_net(a) for a in liste)
+        x2 = sum(1 for a in liste if perf(a)[1] >= 2)
+        return [f"   · {label} : {len(liste)} · x2 : {x2} · après frais {g * suivi.MISE_SIM:+.2f} € "
+                f"({g / len(liste) * 100:+.0f} %)"]
 
     lignes = ["📊 <b>Bilan quotidien</b> (7 derniers jours, prix au moment de l'alerte → maintenant)"]
     titre_cl = "🚨 Classiques" + ("" if CLASSIQUES_EN_DIRECT else " (observation depuis le 19/10)")
@@ -830,6 +850,21 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     lignes += resume([a for a in alertes if a.get("type") == "momentum" and a["chain"] not in v.CHAINES_OBS],
                      "🚀 Momentum confirmé" + (" (en direct depuis le 19/10)" if MOMENTUM_EN_DIRECT
                                               else " (observation)"))
+    mom = [a for a in alertes if a.get("type") == "momentum" and a["chain"] not in v.CHAINES_OBS]
+    if mom:                          # quel sous-groupe du momentum gagne vraiment ?
+        lignes.append("   <i>découpage :</i>")
+        lignes += detail([a for a in mom if a["mcap"] < 700_000], "mcap 300-700 k$")
+        lignes += detail([a for a in mom if 700_000 <= a["mcap"] < 1_500_000], "mcap 0,7-1,5 M$")
+        lignes += detail([a for a in mom if a["mcap"] >= 1_500_000], "mcap 1,5-3 M$")
+        lignes += detail([a for a in mom if a.get("liq_pct", 0) >= 20], "liquidité ≥ 20 % de la mcap")
+        lignes += detail([a for a in mom if a.get("liq_pct", 100) < 20], "liquidité &lt; 20 %")
+        lignes += detail([a for a in mom if a.get("depuis_haut_pct", -100) >= -10], "à moins de 10 % de son plus haut")
+        lignes += detail([a for a in mom if a.get("depuis_haut_pct", 0) < -10], "plus de 10 % sous son plus haut")
+        lignes += detail([a for a in mom if a.get("fort")], "tient quand le marché baisse 💪")
+        lignes += detail([a for a in mom if a.get("age_h") is not None and a["age_h"] < 24], "moins de 24 h")
+        lignes += detail([a for a in mom if a.get("age_h") is not None and a["age_h"] >= 24], "24 h et plus")
+        lignes += detail([a for a in mom if a["chain"] == "solana"], "Solana")
+        lignes += detail([a for a in mom if a["chain"] != "solana"], "BSC / Base")
     lignes += resume([a for a in alertes if a.get("type") == "momentum" and a["chain"] in v.CHAINES_OBS],
                      "🟣 Momentum sur Robinhood Chain (observation, sécurité souvent non vérifiée)")
     narr = [a for a in alertes if a.get("type") == "narratif"]

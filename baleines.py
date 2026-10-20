@@ -40,6 +40,8 @@ EN_DIRECT = False
 BALEINES_MIN = 3              # au moins 3 baleines différentes sur le même token…
 FENETRE_H = 3                 # …en moins de 3 heures
 LIQ_MIN = 10_000              # token sans liquidité = spam envoyé au wallet, ignoré
+MCAP_MIN = 250_000            # 20/10 : sous 250 k$, les tokens achetés par les baleines mouraient presque tous
+MCAP_MAX = 50_000_000         # au-dessus : WBTC, PUMP, actions tokenisées… pas des memecoins
 SIG_PAR_WALLET = 8            # transactions Solana lues par wallet et par cycle
 BUDGET_S = 110                # temps max passé sur les baleines à chaque cycle (le reste continue)
 PAUSE_RPC = 0.15              # pause entre deux appels au RPC Solana public (limite de débit)
@@ -247,6 +249,10 @@ def achats_solana(nom, adresse):
     for s in nouveaux:
         tx = _rpc("getTransaction", [s["signature"], {"encoding": "jsonParsed",
                                                        "maxSupportedTransactionVersion": 0}])
+        if tx is None and "version" in _rpc_stats["derniere_erreur"].lower():
+            # transactions Solana au nouveau format (version 1) : on redemande en l'acceptant
+            tx = _rpc("getTransaction", [s["signature"], {"encoding": "jsonParsed",
+                                                           "maxSupportedTransactionVersion": 1}])
         meta = (tx or {}).get("meta") or {}
         avant = {(b.get("mint"), b.get("owner")): float((b.get("uiTokenAmount") or {}).get("uiAmount") or 0)
                  for b in meta.get("preTokenBalances") or []}
@@ -334,7 +340,7 @@ def surveiller(st, sv, ajouter_suivi, envoyer=None):
     if not cands:
         return
     for t in v.enrich(cands):
-        if t["liq"] < LIQ_MIN or not t["price"]:
+        if t["liq"] < LIQ_MIN or not t["price"] or not MCAP_MIN <= t["mcap"] <= MCAP_MAX:
             continue                        # spam ou token mort
         qui = cands[t["key"]]["qui"]
         _etat["signales"][t["key"]] = now
