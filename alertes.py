@@ -833,10 +833,15 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         liste = [a for a in liste if not aberrant(a)]
         if not liste:
             return []
-        g = sum(suivi.resultat_sim_net(a) for a in liste)
+        gs = [suivi.resultat_sim_net(a) for a in liste]
+        g = sum(gs)
         x2 = sum(1 for a in liste if perf(a)[1] >= 2)
+        sans = ""
+        if len(liste) >= 3:            # le résultat tient-il sans son meilleur coup ?
+            g2 = g - max(gs)
+            sans = f" · sans le meilleur : {g2 / (len(liste) - 1) * 100:+.0f} %"
         return [f"   · {label} : {len(liste)} · x2 : {x2} · après frais {g * suivi.MISE_SIM:+.2f} € "
-                f"({g / len(liste) * 100:+.0f} %)"]
+                f"({g / len(liste) * 100:+.0f} %){sans}"]
 
     lignes = ["📊 <b>Bilan quotidien</b> (7 derniers jours, prix au moment de l'alerte → maintenant)"]
     titre_cl = "🚨 Classiques" + ("" if CLASSIQUES_EN_DIRECT else " (observation depuis le 19/10)")
@@ -865,6 +870,8 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         lignes += detail([a for a in mom if a.get("age_h") is not None and a["age_h"] >= 24], "24 h et plus")
         lignes += detail([a for a in mom if a["chain"] == "solana"], "Solana")
         lignes += detail([a for a in mom if a["chain"] != "solana"], "BSC / Base")
+        lignes += detail([a for a in mom if a.get("liq_pct", 0) >= 20 and a["mcap"] < 1_500_000],
+                         "⭐ filtre candidat : liquidité ≥ 20 % et mcap &lt; 1,5 M$")
     lignes += resume([a for a in alertes if a.get("type") == "momentum" and a["chain"] in v.CHAINES_OBS],
                      "🟣 Momentum sur Robinhood Chain (observation, sécurité souvent non vérifiée)")
     narr = [a for a in alertes if a.get("type") == "narratif"]
