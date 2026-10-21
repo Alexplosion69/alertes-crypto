@@ -30,6 +30,7 @@ from pathlib import Path
 import requests
 
 import baleines
+import evenements
 import outils as v
 
 FICHIER = Path("alertes/positions.json")
@@ -56,7 +57,9 @@ AIDE = ("🤖 <b>Suivi de tes positions</b>\n"
         "Ajoute la mcap de vente si tu veux : <code>/vente SEALS 50% 1.8M</code>\n"
         "<code>/positions</code> : le point tout de suite\n"
         "<code>/baleine NOM ADRESSE</code> : suivre les achats d'une baleine Fomo "
-        "(<code>/baleines</code> pour la liste, <code>/retire NOM</code>)\n\n"
+        "(<code>/baleines</code> pour la liste, <code>/retire NOM</code>)\n"
+        "<code>/actu</code> : les sujets chauds des dernières 24 h · <code>/evenements</code> : le calendrier\n"
+        "<code>/evenement 2026-11-19 GTA 6 gta6,gta</code> : ajouter un événement (<code>/oublie Nom</code> pour le retirer)\n\n"
         "Je te préviens à x2, x3, x5, x10…, à −30 % et −50 %, si ça perd 30 % depuis le plus haut, "
         "et si la liquidité fond.")
 
@@ -206,6 +209,14 @@ def commandes(p):
                 baleines.cmd_liste(envoyer)
             elif cmd == "retire":
                 baleines.cmd_retire(mots[1:], envoyer)
+            elif cmd == "actu":
+                evenements.cmd_actu(envoyer)
+            elif cmd == "evenements":
+                evenements.cmd_evenements(envoyer)
+            elif cmd in ("evenement", "event"):
+                evenements.cmd_evenement(mots[1:], envoyer)
+            elif cmd == "oublie":
+                evenements.cmd_oublie(mots[1:], envoyer)
             elif cmd in ("positions", "pos", "point"):
                 envoyer(resume(p, maintenant=True))
             elif cmd in ("aide", "help", "start") or texte.startswith("/"):

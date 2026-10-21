@@ -28,6 +28,7 @@ import requests
 
 import baleines
 import devs
+import evenements
 import outils as v  # briques communes : API gratuites, wash trading, GoPlus
 import portefeuilles
 import positions
@@ -971,6 +972,7 @@ def main(mode):
     pos = positions.charger()
     devs.charger()
     baleines.charger()
+    evenements.charger()
     if mode == "bilan":
         bilan_quotidien(st, sv, pf, forcer=True)
         save_state(st)
@@ -993,6 +995,10 @@ def main(mode):
             import traceback
             traceback.print_exc()
             print(f"[warn] cycle en erreur : {e!r}")
+        try:                                 # actu : calendrier, sujets chauds sur Google, suivi 6 h après
+            evenements.tick(telegram, pos.get("positions"))
+        except Exception as e:
+            print(f"[warn] actu : {e!r}")
         save_state(st)
         suivi.sauver(sv)
         portefeuilles.sauver(pf)

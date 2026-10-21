@@ -1,0 +1,13 @@
+# Événements datés : rappel 7 jours avant, la veille et le jour J.
+# Format : AAAA-MM-JJ | Nom | mots-clés séparés par des virgules (pour repérer les tokens et tes positions)
+# Ajouter depuis Telegram : /evenement 2026-11-19 GTA 6 gta6,gta   ·   retirer : /oublie Nom
+# N'ajoute que des dates confirmées (Super Bowl, keynote Apple, event Tesla… dès qu'elles sont officielles).
+
+2026-10-31 | Halloween | halloween, halloweek, spooky, pumpkin
+2026-11-03 | Élections de mi-mandat aux États-Unis | midterms, election, vote
+2026-11-19 | Sortie de GTA 6 | gta6, gta, vice, dacity, ttwo
+2026-11-26 | Thanksgiving | thanksgiving, turkey
+2026-11-27 | Black Friday | blackfriday, black friday
+2026-12-25 | Noël | christmas, santa, xmas, noel
+2027-01-01 | Nouvel an | newyear, 2027
+2027-02-14 | Saint-Valentin | valentine, love

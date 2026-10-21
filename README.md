@@ -354,6 +354,16 @@ Tu n'as plus rien à faire : GitHub lance la surveillance **toute seule chaque h
 
 ## Partie 6 — Au quotidien
 
+### Actu et événements (depuis le 21/10)
+
+- **📰 Sujet chaud** : toutes les 30 min, le bot lit les recherches qui montent sur Google aux
+  États-Unis. Notif si un sujet dépasse **1 000+ recherches**, ou dépasse 200+ et que **2 tokens ou plus**
+  sont déjà nés dessus en 48 h. Maximum 8 par jour. **6 h après**, il te dit si un token du sujet a tenu
+  (au moins 3 h, 20 k$ de liquidité, 100 k$ de mcap).
+- **📅 Calendrier** : rappels 7 jours avant, la veille et le jour J pour les événements de
+  `evenements_calendrier.txt`. Si une de tes positions porte un nom lié, il te rappelle de vendre avant.
+- Commandes : `/actu`, `/evenements`, `/evenement 2026-11-19 GTA 6 gta6,gta`, `/oublie Nom`.
+
 ### Ce qui déclenche une alerte
 
 Toutes ces conditions à la fois (réglables en haut de `alertes.py`) :
