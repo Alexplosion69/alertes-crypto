@@ -43,6 +43,12 @@ RADAR_TRAFIC_MIN = 1_000          # « 1000+ recherches » : un vrai pic aux Ét
 RADAR_TRAFIC_MEME = 200           # plus bas si des tokens sont déjà nés sur le sujet…
 RADAR_TOKENS_MEME = 2             # …au moins 2 en 48 h
 RADAR_MAX_JOUR = 8                # pas plus de 8 notifs actu par jour
+RADAR_MAX_PASSAGE = 2             # et 2 par passage (pas de rafale au démarrage)
+RADAR_TRAFIC_SPORT = 10_000       # sport (entraîneur viré, transfert…) : seulement si c'est énorme
+SPORT = re.compile(r"espn|cbssports|bleacherreport|si\.com|nfl|nba|mlb|nhl|ncaa|/sports?/|football|"
+                   r"baseball|basketball|soccer|tennis|golf|athletic|247sports|onsi|yardbarker|gmenhq",
+                   re.I)
+TOKEN_LIQ_VIVANT = 1_000          # sous 1 k$ de liquidité, un token est mort
 SUIVI_H = 6                       # nouvelles du sujet 6 h après la notif
 TOKEN_AGE_MIN_H = 3               # un token « qui tient » : au moins 3 h…
 TOKEN_LIQ_MIN = 20_000            # …20 k$ de liquidité…
@@ -93,10 +99,26 @@ def _norm(txt):
 
 
 def _mots(sujet):
+    """Mots qui identifient le sujet dans le nom d'un token. Pour un sujet en plusieurs mots, un
+    prénom seul ne suffit pas (« brian cashman » ne doit pas trouver tous les $BRIAN) : on garde le
+    sujet collé et le dernier mot (souvent le nom de famille) s'il fait au moins 5 lettres."""
     mots = [_norm(m) for m in re.split(r"[\s\-_/]+", sujet)]
-    mots = [m for m in mots if len(m) >= 4 and m not in MOTS_VIDES]
+    mots = [m for m in mots if len(m) >= 3 and m not in MOTS_VIDES]
     colle = _norm(sujet)
-    return ([colle] if len(colle) >= 4 else []) + mots
+    if len(mots) <= 1:
+        return [colle] if len(colle) >= 3 else []
+    return [colle] + ([mots[-1]] if len(mots[-1]) >= 5 else [])
+
+
+def correspond(nom, sujet):
+    """Le nom (ou ticker) du token reprend-il le sujet ? Sujet collé, nom de famille, ou au moins
+    deux mots du sujet (« Flying Tesla » pour « tesla flying car »)."""
+    nom = _norm(nom)
+    if any(m in nom for m in _mots(sujet)):
+        return True
+    mots = [_norm(m) for m in re.split(r"[\s\-_/]+", sujet)]
+    mots = [m for m in mots if len(m) >= 3 and m not in MOTS_VIDES]
+    return len(mots) >= 2 and sum(m in nom for m in mots) >= 2
 
 
 def _trafic(txt):
@@ -110,8 +132,7 @@ def _trafic(txt):
 # ---------------------------------------------------------------- tokens liés à un sujet
 def tokens_du_sujet(sujet, fenetre_h=48):
     """Tokens nés récemment dont le nom ou le ticker reprend le sujet (DexScreener)."""
-    mots = _mots(sujet)
-    if not mots:
+    if not _mots(sujet):
         return []
     d = v.get_json(f"{v.DS}/latest/dex/search", params={"q": sujet}) or {}
     now_ms = time.time() * 1000
@@ -123,10 +144,11 @@ def tokens_du_sujet(sujet, fenetre_h=48):
         if age_h > fenetre_h:
             continue
         b = p.get("baseToken") or {}
-        nom = _norm(b.get("name")) + " " + _norm(b.get("symbol"))
-        if not any(m in nom for m in mots):
+        if not (correspond(b.get("name"), sujet) or correspond(b.get("symbol"), sujet)):
             continue
         liq = (p.get("liquidity") or {}).get("usd") or 0
+        if liq < TOKEN_LIQ_VIVANT:
+            continue                      # token mort ou vide : il ne compte pas
         cle = f"{p['chainId']}:{b.get('address')}"
         if cle not in best or liq > best[cle]["liq"]:
             best[cle] = {"symbol": b.get("symbol"), "chain": p["chainId"], "address": b.get("address"),
@@ -171,6 +193,7 @@ def radar(envoyer):
     if now - _etat["dernier_radar"] < RADAR_TOUTES_MIN * 60:
         return
     _etat["dernier_radar"] = now
+    envoyes = 0
     for s in sorted(lire_tendances(), key=lambda s: -s["trafic"]):
         cle = _norm(s["sujet"])
         if not cle or cle in _etat["vus"] or s["trafic"] < RADAR_TRAFIC_MEME:
@@ -178,9 +201,13 @@ def radar(envoyer):
         toks = tokens_du_sujet(s["sujet"])
         if s["trafic"] < RADAR_TRAFIC_MIN and len(toks) < RADAR_TOKENS_MEME:
             continue                      # ni gros pic, ni tokens : on le reverra s'il grossit
+        sport = bool(SPORT.search(f"{s['lien']} {s['source']} {s['titre']}"))
+        if sport and s["trafic"] < RADAR_TRAFIC_SPORT and len(toks) < RADAR_TOKENS_MEME:
+            continue                      # actu sportive ordinaire : rarement un memecoin
         _etat["vus"][cle] = now
-        if len(_etat["envois"]) >= RADAR_MAX_JOUR:
+        if len(_etat["envois"]) >= RADAR_MAX_JOUR or envoyes >= RADAR_MAX_PASSAGE:
             continue
+        envoyes += 1
         lignes = [f"📰 <b>Sujet chaud : {html.escape(s['sujet'])}</b> "
                   f"({format(s['trafic'], ',').replace(',', ' ')}+ recherches Google, {s['pays']})"]
         if s["titre"]:
