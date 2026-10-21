@@ -335,6 +335,8 @@ MOM_AGE_MIN_H, MOM_AGE_MAX_H = 6, 168
 MOM_MCAP_MIN, MOM_MCAP_MAX = 300_000, 3_000_000   # là où tu as repéré DOPE, Pepper, CLAUDIA…
 MOM_LIQ_MIN = 50_000
 MOM_LIQ_SUR_MCAP = 0.03       # liquidité ≥ 3 % du mcap (DOPE : ~200 k$ pour ~4,8 M$)
+MOM_VOL_1H_MIN = 5_000         # 21/10 : $KOLO alerté avec 0 $ de volume et 0 achat (données vides
+MOM_ACHATS_6H_MIN = 50         # ou paire morte) : « 0 ≥ 0 » passait tous les tests. Activité minimale.
 MOM_DEPUIS_HAUT = 0.5         # prix ≥ 50 % de son plus haut connu
 
 
@@ -348,6 +350,8 @@ def motif_momentum(e, t, now=None):
         return None
     if t["price"] < MOM_DEPUIS_HAUT * max(e["ath"], t["price"]):
         return None
+    if t["vol_1h"] < MOM_VOL_1H_MIN or t["buys_6h"] < MOM_ACHATS_6H_MIN:
+        return None                   # pas de vraie activité (ou DexScreener n'a rien renvoyé)
     if t["vol_1h"] < 0.8 * t["vol_6h"] / 6 or t["buys_6h"] < t["sells_6h"]:
         return None
     if t["chg_6h"] < 0 or t.get("chg_5m", 0) <= CHUTE_5M_MAX:
