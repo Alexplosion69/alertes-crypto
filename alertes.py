@@ -78,6 +78,8 @@ NARR_ETOILE_AGE_H = 1.5       # …et qui a déjà survécu 1 h 30 (SEALS : x25 
 CLASSIQUES_EN_DIRECT = False  # 19/10 : -28 % simulés sur 7 j -> enregistrées pour le bilan seulement
 X_ABERRANT = 50               # au-delà de x50 en 7 jours, une alerte est sortie des totaux (à vérifier)
 MOMENTUM_EN_DIRECT = True     # 19/10 : seule catégorie gagnante (+10 % hors meilleur coup) -> envoyé
+ETOILE_LIQ_PCT = 20             # 21/10 : momentum avec liquidité ≥ 20 % de la mcap = +74 % (+38 % sans
+                                # le meilleur) sur le 19-21/10 -> catégorie ⭐ à part, jugée sur la suite
 NARRATIFS_EN_DIRECT = True    # False : enregistrés pour le bilan seulement (1 sur 5 au 13/10 : SEALS x10)
 
 # --- Survivants (les critères de forme sont dans suivi.py)
@@ -706,6 +708,8 @@ def momentum_observation(st, sv, frais, sent_this_hour=None):
                 and (sent_this_hour is None or sent_this_hour[0] < MAX_ALERTES_HEURE)):
             fort, force_txt = suivi.force_relative(sv, t)
             lignes = [
+                (f"⭐ <b>Liquidité forte : {m['liq_pct']:.0f} % de la mcap</b> (meilleur filtre du bilan)"
+                 if m["liq_pct"] >= ETOILE_LIQ_PCT else ""),
                 f"🚀 <b>Momentum confirmé : ${html.escape(str(t['symbol']))}</b> ({t['chain']}) — "
                 f"{t['age_h']:.0f} h" + (" 💪" if fort else ""),
                 f"mcap {fmt_usd(t['mcap'])} · liq {fmt_usd(t['liq'])} ({m['liq_pct']:.0f} %) · "
@@ -727,7 +731,8 @@ def momentum_observation(st, sv, frais, sent_this_hour=None):
                              "symbol": t["symbol"], "chain": t["chain"], "address": t["address"],
                              "price": t["price"], "mcap": t["mcap"], "url": t["dexscreener"],
                              "fort": suivi.force_relative(sv, t)[0], "cause": bool(caritatif(t)),
-                             "securite_inconnue": sec_inconnue, "age_h": round(t["age_h"], 1), **m})
+                             "securite_inconnue": sec_inconnue, "age_h": round(t["age_h"], 1),
+                             "etoile_liq": m["liq_pct"] >= ETOILE_LIQ_PCT, **m})
         suivi.ajouter(sv, t, garder=True)
     if n:
         print(f"momentum : {n} token(s) enregistré(s)" + (" et envoyé(s)" if MOMENTUM_EN_DIRECT else ""))
@@ -782,6 +787,19 @@ def bilan_quotidien(st, sv, pf, forcer=False):
             a["peak"] = max(a.get("peak") or a["price"], t["price"])
         elif a["key"] in manquants and frais:
             a["mort"] = True                       # disparu de DexScreener
+    # âge du token au moment de l'alerte : noté seulement depuis le 20/10. Pour les alertes plus
+    # anciennes, on le recalcule (date de création du token connue par le suivi ou DexScreener).
+    for a in alertes:
+        if a.get("age_h") is not None:
+            continue
+        e = sv["tokens"].get(a["key"])
+        age = None
+        if e and e.get("created"):
+            age = (a["ts"] - e["created"]) / 3600
+        elif frais.get(a["key"], {}).get("age_h"):
+            age = frais[a["key"]]["age_h"] - (now - a["ts"]) / 3600
+        if age is not None and age >= 0:
+            a["age_h"] = round(age, 1)
     # alertes jamais suivies toutes les 30 min (anciennes versions du bot) : sans ça leur gain simulé
     # comptait 0 € au lieu d'une perte. On rejoue la règle avec le plus haut connu puis le prix actuel.
     for a in alertes + signaux:
@@ -870,8 +888,18 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         lignes += detail([a for a in mom if a.get("age_h") is not None and a["age_h"] >= 24], "24 h et plus")
         lignes += detail([a for a in mom if a["chain"] == "solana"], "Solana")
         lignes += detail([a for a in mom if a["chain"] != "solana"], "BSC / Base")
-        lignes += detail([a for a in mom if a.get("liq_pct", 0) >= 20 and a["mcap"] < 1_500_000],
-                         "⭐ filtre candidat : liquidité ≥ 20 % et mcap &lt; 1,5 M$")
+        liq = [a for a in mom if a.get("liq_pct", 0) >= ETOILE_LIQ_PCT]
+        lignes += detail([a for a in liq if a["chain"] == "solana"], "liquidité ≥ 20 % · Solana")
+        lignes += detail([a for a in liq if a["chain"] != "solana"], "liquidité ≥ 20 % · BSC / Base")
+        lignes += detail([a for a in mom if a.get("liq_pct", 100) < ETOILE_LIQ_PCT and a["chain"] != "solana"],
+                         "liquidité &lt; 20 % · BSC / Base")
+        sans_age = sum(1 for a in mom if a.get("age_h") is None)
+        if sans_age:
+            lignes.append(f"   <i>âge inconnu pour {sans_age} alerte(s) (token disparu du suivi)</i>")
+    # catégorie ⭐ : seulement les alertes marquées ⭐ au moment de l'envoi (à partir du 21/10),
+    # pour la juger sur des alertes qui n'ont pas servi à la choisir
+    lignes += resume([a for a in mom if a.get("etoile_liq")],
+                     "⭐ Momentum liquidité ≥ 20 % (catégorie à part, depuis le 21/10)")
     lignes += resume([a for a in alertes if a.get("type") == "momentum" and a["chain"] in v.CHAINES_OBS],
                      "🟣 Momentum sur Robinhood Chain (observation, sécurité souvent non vérifiée)")
     narr = [a for a in alertes if a.get("type") == "narratif"]

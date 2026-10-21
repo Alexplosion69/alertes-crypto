@@ -217,6 +217,24 @@ def _rpc(methode, params):
         return None
 
 
+_version_tx = [0]     # version de transaction Solana demandée ; passe à 1 dès qu'on en croise une
+
+
+def _transaction(signature):
+    """Lit une transaction. Les transactions au nouveau format (version 1) sont refusées si on ne
+    demande que la version 0 : on redemande alors en version 1, et on garde la version 1 pour la
+    suite. Ce refus attendu n'est pas compté comme une panne de la connexion."""
+    while True:
+        v_tx = _version_tx[0]
+        tx = _rpc("getTransaction", [signature, {"encoding": "jsonParsed",
+                                                 "maxSupportedTransactionVersion": v_tx}])
+        if tx is not None or v_tx >= 1 or "version" not in _rpc_stats["derniere_erreur"].lower():
+            return tx
+        _rpc_stats["echecs"] -= 1
+        _rpc_stats["derniere_erreur"] = ""
+        _version_tx[0] = 1
+
+
 def etat_rpc():
     """Une ligne lisible : quelle connexion Solana, et est-ce qu'elle répond."""
     total = _rpc_stats["ok"] + _rpc_stats["echecs"]
@@ -247,12 +265,7 @@ def achats_solana(nom, adresse):
             nouveaux.append(s)
     achats = []
     for s in nouveaux:
-        tx = _rpc("getTransaction", [s["signature"], {"encoding": "jsonParsed",
-                                                       "maxSupportedTransactionVersion": 0}])
-        if tx is None and "version" in _rpc_stats["derniere_erreur"].lower():
-            # transactions Solana au nouveau format (version 1) : on redemande en l'acceptant
-            tx = _rpc("getTransaction", [s["signature"], {"encoding": "jsonParsed",
-                                                           "maxSupportedTransactionVersion": 1}])
+        tx = _transaction(s["signature"])
         meta = (tx or {}).get("meta") or {}
         avant = {(b.get("mint"), b.get("owner")): float((b.get("uiTokenAmount") or {}).get("uiAmount") or 0)
                  for b in meta.get("preTokenBalances") or []}
