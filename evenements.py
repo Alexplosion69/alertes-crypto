@@ -188,6 +188,19 @@ def lire_tendances():
     return sujets
 
 
+def _deja_couvert(s, now):
+    mots = {_norm(m) for m in re.split(r"[\s\-_/]+", s["sujet"]) if len(_norm(m)) >= 3} - MOTS_VIDES
+    for x in _etat["sujets"]:
+        if now - x["ts"] > 12 * 3600:
+            continue
+        if s["lien"] and s["lien"] == x.get("lien"):
+            return True
+        autres = {_norm(m) for m in re.split(r"[\s\-_/]+", x["sujet"]) if len(_norm(m)) >= 3} - MOTS_VIDES
+        if any(len(m) >= 4 for m in mots & autres):
+            return True                   # un mot distinctif en commun (« como », « trump »…) en 12 h
+    return False
+
+
 def radar(envoyer):
     now = time.time()
     if now - _etat["dernier_radar"] < RADAR_TOUTES_MIN * 60:
@@ -205,6 +218,8 @@ def radar(envoyer):
         if sport and s["trafic"] < RADAR_TRAFIC_SPORT and len(toks) < RADAR_TOKENS_MEME:
             continue                      # actu sportive ordinaire : rarement un memecoin
         _etat["vus"][cle] = now
+        if _deja_couvert(s, now):
+            continue                      # même actu sous un autre nom (« como vs man utd » / « como - manchester united »)
         if len(_etat["envois"]) >= RADAR_MAX_JOUR or envoyes >= RADAR_MAX_PASSAGE:
             continue
         envoyes += 1
@@ -222,7 +237,7 @@ def radar(envoyer):
                       "si l'un d'eux a tenu.</i>")
         if envoyer("\n".join(lignes)):
             _etat["envois"].append(now)
-        _etat["sujets"].append({"ts": now, "sujet": s["sujet"], "trafic": s["trafic"],
+        _etat["sujets"].append({"ts": now, "sujet": s["sujet"], "trafic": s["trafic"], "lien": s["lien"],
                                 "tokens": len(toks), "suivi": False})
 
 
