@@ -444,6 +444,9 @@ def securite(t):
               ("honeypot", "impossible", "modifier les soldes", "caché"))]
     if graves:
         return False, "GoPlus : " + ", ".join(graves)
+    if (sec.get("lp_retirable_pct") or 0) >= 50:
+        return False, (f"{sec['lp_retirable_pct']:.0f} % de la liquidité chez le créateur ou un wallet, "
+                       "non verrouillée : il peut la retirer d'un coup")
     # données manquantes = token pas encore analysé par GoPlus : on refuse (inconnu ≠ sûr)
     if sec.get("taxe_vente_pct") is None or sec.get("taxe_achat_pct") is None:
         return False, "GoPlus : taxes inconnues (token pas encore analysé)"

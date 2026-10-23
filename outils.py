@@ -225,7 +225,17 @@ def goplus(tokens):
             lp_lock = sum(float(h.get("percent") or 0) for h in lp
                           if str(h.get("is_locked")) == "1"
                           or str(h.get("address", "")).lower().startswith("0x000000000000000000000000000000000000dead"))
+            # liquidité tenue par le créateur ou par un wallet ordinaire, non verrouillée : il peut
+            # la retirer d'un coup (clone $DACITY sur Base, 23/10 : 99,5 % des LP chez le créateur)
+            createur = str(r.get("creator_address") or "").lower()
+            lp_retirable = sum(float(h.get("percent") or 0) for h in lp
+                               if str(h.get("is_locked")) != "1"
+                               and (str(h.get("address", "")).lower() == createur
+                                    or str(h.get("is_contract")) == "0"))
+            if str(r.get("is_open_source")) == "0":
+                risques.append("code du contrat caché (non vérifiable)")
             t["securite_evm"] = {"risques": risques,
+                                 "lp_retirable_pct": round(lp_retirable * 100, 1) if lp else None,
                                  "createur": r.get("creator_address") or None,
                                  "liquidite_verrouillee_pct": round(lp_lock * 100, 1) if lp else None,
                                  "createur_detient_pct": tax(r.get("creator_percent")),
