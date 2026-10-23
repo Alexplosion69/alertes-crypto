@@ -81,6 +81,7 @@ def enrich(cands):
         by_chain.setdefault(c["chain"], []).append(c["address"])
 
     best = {}  # pour chaque token, la paire la plus liquide
+    totale = {}  # et la liquidité de toutes ses paires additionnées
     for chain, addrs in by_chain.items():
         for i in range(0, len(addrs), 30):
             pairs = get_json(f"{DS}/tokens/v1/{chain}/{','.join(addrs[i:i + 30])}") or []
@@ -89,11 +90,17 @@ def enrich(cands):
                 if k not in cands:
                     continue
                 liq = (p.get("liquidity") or {}).get("usd") or 0
+                totale[k] = totale.get(k, 0) + liq
                 if k not in best or liq > best[k][0]:
                     best[k] = (liq, p)
             time.sleep(0.3)
 
-    return [depuis_paire(p, cands[k]) for k, (liq, p) in best.items()]
+    out = []
+    for k, (liq, p) in best.items():
+        t = depuis_paire(p, cands[k])
+        t["liq_totale"] = totale.get(k, liq)
+        out.append(t)
+    return out
 
 
 def depuis_paire(p, cand=None):

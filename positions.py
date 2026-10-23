@@ -356,7 +356,7 @@ def analyse(t, pos):
     elif rythme <= 0.5:
         score -= 1
         lignes.append(f"❌ le volume s'essouffle (1 h = {rythme:.1f}x la moyenne des 6 h)")
-    liq_ratio = t["liq"] / max(pos["liq_max"], 1)
+    liq_ratio = (t.get("liq_totale") or t["liq"]) / max(pos["liq_max"], 1)
     if liq_ratio >= 0.9:
         score += 1
         lignes.append("✅ liquidité stable")
@@ -414,7 +414,14 @@ def surveiller(p):
         x = t["price"] / pos["prix_entree"]
         pos["x"], pos["mcap"] = x, t["mcap"]
         pos["haut_x"] = max(pos["haut_x"], x)
-        pos["liq_max"] = max(pos["liq_max"], t["liq"])
+        # liquidité de TOUTES les paires : sur un token à plusieurs pools (Meteora DLMM…), un seul
+        # fournisseur qui déplace sa position faisait croire à un rug (GTA6, 23/10 : une paire
+        # 223 k$ → 80 k$, alors que le total restait vers 400 k$)
+        liq = t.get("liq_totale") or t["liq"]
+        if not pos.get("liq_totale_ok"):       # anciennes références mesurées sur une seule paire
+            pos["liq_max"] = pos["liq_ref"] = liq
+            pos["liq_totale_ok"] = True
+        pos["liq_max"] = max(pos["liq_max"], liq)
         evts = []
         nouveaux = [q for q in PALIERS if x >= q and q not in pos["paliers"]]
         if nouveaux:
@@ -431,12 +438,12 @@ def surveiller(p):
             pos["envoyes"]["repli"] = round(pos["haut_x"], 2)
             evts.append(("baisse", f"📉 <b>${pos['symbol']} a perdu {(1 - x / pos['haut_x']) * 100:.0f} % "
                                    f"depuis son plus haut</b> (x{pos['haut_x']:.1f} → x{x:.2f})"))
-        ref = pos["liq_ref"] = max(pos.get("liq_ref", pos["liq_max"]), t["liq"])
-        if ref >= 10_000 and t["liq"] <= LIQ_FONTE * ref:
-            pos["liq_ref"] = t["liq"]          # prochaine alerte seulement si ça refond encore
+        ref = pos["liq_ref"] = max(pos.get("liq_ref", liq), liq)
+        if ref >= 10_000 and liq <= LIQ_FONTE * ref:
+            pos["liq_ref"] = liq               # prochaine alerte seulement si ça refond encore
             evts.append(("baisse", f"🚨 <b>${pos['symbol']} : la liquidité a fondu</b> "
-                                   f"({fmt_usd(ref)} → {fmt_usd(t['liq'])}). Risque de rug : "
-                                   f"quelqu'un retire l'argent du pool."))
+                                   f"({fmt_usd(ref)} → {fmt_usd(liq)}, toutes paires comprises). Risque de "
+                                   f"rug : quelqu'un retire l'argent du pool."))
         if t["chg_5m"] <= CHUTE_5M and now - pos["envoyes"].get("chute", 0) > 1800:
             pos["envoyes"]["chute"] = now
             evts.append(("baisse", f"🚨 <b>${pos['symbol']} chute de {t['chg_5m']:.0f} % en 5 min</b>"))
