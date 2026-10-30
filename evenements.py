@@ -54,7 +54,9 @@ TOKEN_AGE_MIN_H = 3               # un token « qui tient » : au moins 3 h…
 TOKEN_LIQ_MIN = 20_000            # …20 k$ de liquidité…
 TOKEN_MCAP_MIN = 100_000          # …et 100 k$ de mcap
 CHAINES = ("solana", "bsc", "base")
-RAPPELS_J = (7, 1, 0)
+RAPPELS_J = (14, 7, 1, 0)        # 31/10 : rappel 14 jours avant, pour avoir le temps de se placer
+EVT_TOKEN_LIQ = 10_000           # tokens « solides » d'un événement : 10 k$ de liquidité…
+EVT_TOKEN_VOL = 5_000            # …et encore 5 k$ de volume sur 24 h (sinon personne ne le trade)
 MOTS_VIDES = {"the", "and", "for", "with", "from", "this", "that", "what", "when", "where", "how",
               "who", "why", "news", "today", "live", "game", "vs", "les", "des", "une", "pour", "dans"}
 
@@ -153,7 +155,8 @@ def tokens_du_sujet(sujet, fenetre_h=48):
         if cle not in best or liq > best[cle]["liq"]:
             best[cle] = {"symbol": b.get("symbol"), "chain": p["chainId"], "address": b.get("address"),
                          "age_h": age_h, "liq": liq, "mcap": p.get("marketCap") or p.get("fdv") or 0,
-                         "chg_6h": (p.get("priceChange") or {}).get("h6") or 0, "url": p.get("url")}
+                         "chg_6h": (p.get("priceChange") or {}).get("h6") or 0, "url": p.get("url"),
+                         "vol_24h": (p.get("volume") or {}).get("h24") or 0}
     return sorted(best.values(), key=lambda t: -t["mcap"])
 
 
@@ -287,6 +290,25 @@ def _positions_liees(e, positions):
             and any(m in _norm(p.get("symbol")) or _norm(p.get("symbol")) in m for m in mots)]
 
 
+def tokens_evenement(e):
+    """Tokens solides liés à un événement, quel que soit leur âge : on cherche chaque mot-clé."""
+    vus, tous = set(), []
+    for mot in (e["mots"] or [e["nom"]])[:4]:
+        for t in tokens_du_sujet(mot, fenetre_h=24 * 365):
+            cle = f"{t['chain']}:{t['address']}"
+            if cle not in vus:
+                vus.add(cle)
+                tous.append(t)
+    solides = [t for t in tous if t["liq"] >= EVT_TOKEN_LIQ and t["vol_24h"] >= EVT_TOKEN_VOL]
+    return sorted(solides, key=lambda t: -t["mcap"]), len(tous)
+
+
+def _ligne_evt(t):
+    age = f"{t['age_h']:.0f} h" if t["age_h"] < 48 else f"{t['age_h'] / 24:.0f} j"
+    return (f"<a href=\"{t['url']}\">${html.escape(str(t['symbol']))}</a> ({t['chain']}) "
+            f"{_usd(t['mcap'])} · liq {_usd(t['liq'])} · vol 24 h {_usd(t['vol_24h'])} · {age}")
+
+
 def calendrier(envoyer, positions=None):
     maintenant = datetime.now(PARIS)
     if maintenant.hour < 9:               # rappels à partir de 9 h (heure de Paris)
@@ -308,15 +330,20 @@ def calendrier(envoyer, positions=None):
         lignes = [f"📅 <b>{html.escape(e['nom'])}</b> : {quand} ({jour.strftime('%d/%m')})"]
         liees = _positions_liees(e, positions)
         if liees:
-            lignes.append("⚠️ Tu as une position liée : " + ", ".join(f"${html.escape(s)}" for s in liees)
-                          + (". Ces tokens s'effondrent souvent le jour J : vends avant."
-                             if reste else ". Si tu ne l'as pas encore vendue, c'est le moment."))
-        elif reste == 7:
-            toks = tokens_du_sujet(e["mots"][0] if e["mots"] else e["nom"], fenetre_h=24 * 30)
-            if toks:
-                lignes.append("🪙 Tokens sur le sujet :")
-                lignes += [f"   · {_ligne_token(t)}" for t in toks[:3]]
-            lignes.append("<i>La hype monte souvent à l'approche de la date, et retombe le jour J.</i>")
+            conseil = {0: ". Ces tokens s'effondrent souvent le jour J : vends maintenant si ce n'est pas fait.",
+                       1: ". Si tu ne l'as pas encore vendue, c'est le moment."}.get(
+                reste, ". Prévois de vendre avant le jour J : la hype monte souvent jusqu'à quelques jours avant.")
+            lignes.append("⚠️ Tu as une position liée : " + ", ".join(f"${html.escape(s)}" for s in liees) + conseil)
+        if reste >= 7:
+            solides, total = tokens_evenement(e)
+            if solides:
+                lignes.append(f"🪙 Tokens solides sur le sujet (≥ {_usd(EVT_TOKEN_LIQ)} de liquidité, encore tradés) :")
+                lignes += [f"   · {_ligne_evt(t)}" for t in solides[:5]]
+                lignes.append("<i>Envoie l'adresse à Claude pour l'analyse avant d'acheter.</i>")
+            else:
+                lignes.append(f"🪙 Aucun token solide pour l'instant ({total} petit(s) token(s) sans liquidité ni volume).")
+            lignes.append("<i>La hype monte souvent à l'approche de la date, et retombe le jour J : "
+                          + ("c'est le bon moment pour regarder.</i>" if reste >= 14 else "vends avant.</i>"))
         envoyer("\n".join(lignes))
 
 

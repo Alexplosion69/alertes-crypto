@@ -361,8 +361,10 @@ Tu n'as plus rien à faire : GitHub lance la surveillance **toute seule chaque h
   (≥ 10 k$ de liquidité) existe déjà dessus. Exception : un événement énorme (**100 000+**, ou 500 000+
   pour le sport) passe même sans token. Maximum 4 par jour. **6 h après**, il te dit si un token du sujet
   a tenu (au moins 3 h, 20 k$ de liquidité, 100 k$ de mcap).
-- **📅 Calendrier** : rappels 7 jours avant, la veille et le jour J pour les événements de
-  `evenements_calendrier.txt`. Si une de tes positions porte un nom lié, il te rappelle de vendre avant.
+- **📅 Calendrier** : rappels **14 jours avant**, 7 jours avant, la veille et le jour J pour les événements
+  de `evenements_calendrier.txt`. À J-14 et J-7, la liste des tokens solides déjà nés sur le sujet
+  (≥ 10 k$ de liquidité, ≥ 5 k$ de volume sur 24 h). Si une de tes positions porte un nom lié, il te
+  rappelle de vendre avant le jour J.
 - Commandes : `/actu`, `/evenements`, `/evenement 2026-11-19 GTA 6 gta6,gta`, `/oublie Nom`.
 
 ### Ce qui déclenche une alerte
