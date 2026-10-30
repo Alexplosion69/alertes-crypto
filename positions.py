@@ -357,7 +357,9 @@ def analyse(t, pos):
         score -= 1
         lignes.append(f"❌ le volume s'essouffle (1 h = {rythme:.1f}x la moyenne des 6 h)")
     liq_ratio = (t.get("liq_totale") or t["liq"]) / max(pos["liq_max"], 1)
-    if liq_ratio >= 0.9:
+    if (t.get("liq_concentree_pct") or 0) >= 50:
+        pass                                  # pools concentrées : la liquidité affichée ne dit rien de fiable
+    elif liq_ratio >= 0.9:
         score += 1
         lignes.append("✅ liquidité stable")
     elif liq_ratio < 0.75:
@@ -439,7 +441,9 @@ def surveiller(p):
             evts.append(("baisse", f"📉 <b>${pos['symbol']} a perdu {(1 - x / pos['haut_x']) * 100:.0f} % "
                                    f"depuis son plus haut</b> (x{pos['haut_x']:.1f} → x{x:.2f})"))
         ref = pos["liq_ref"] = max(pos.get("liq_ref", liq), liq)
-        if ref >= 10_000 and liq <= LIQ_FONTE * ref:
+        # GTA6, 27/10 : « liquidité fondue, coupe » à x2,4… puis x8 dans les jours suivants. Sa
+        # liquidité est surtout en pools concentrées (Meteora DLMM, Raydium CLMM) : pas d'alerte rug.
+        if ref >= 10_000 and liq <= LIQ_FONTE * ref and (t.get("liq_concentree_pct") or 0) < 50:
             pos["liq_ref"] = liq               # prochaine alerte seulement si ça refond encore
             evts.append(("baisse", f"🚨 <b>${pos['symbol']} : la liquidité a fondu</b> "
                                    f"({fmt_usd(ref)} → {fmt_usd(liq)}, toutes paires comprises). Risque de "

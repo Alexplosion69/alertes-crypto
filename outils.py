@@ -35,6 +35,9 @@ def detecter_reseaux_gt():
         else:
             print(f"GeckoTerminal ne couvre pas {chain} : DexScreener seulement")
 UA = {"User-Agent": "alertes-crypto/1.0"}
+# Pools à liquidité concentrée : plein de fournisseurs indépendants qui déplacent leurs positions,
+# et une valeur affichée qui varie avec le prix. Une baisse n'y veut pas dire « rug ».
+POOLS_CONCENTREES = {"DLMM", "CLMM", "V3", "V4", "DYN", "DYN2"}
 WASH_VOL_LIQ = 20            # volume 24 h > 20x la liquidité : wash trading probable
 WASH_TX_PER_BUYER = 6        # plus de 6 achats par acheteur en 1 h : bots probables
 
@@ -82,6 +85,7 @@ def enrich(cands):
 
     best = {}  # pour chaque token, la paire la plus liquide
     totale = {}  # et la liquidité de toutes ses paires additionnées
+    concentree = {}  # dont celle des pools « concentrées » (Meteora DLMM, Raydium CLMM, Uniswap v3/v4)
     for chain, addrs in by_chain.items():
         for i in range(0, len(addrs), 30):
             pairs = get_json(f"{DS}/tokens/v1/{chain}/{','.join(addrs[i:i + 30])}") or []
@@ -91,6 +95,8 @@ def enrich(cands):
                     continue
                 liq = (p.get("liquidity") or {}).get("usd") or 0
                 totale[k] = totale.get(k, 0) + liq
+                if any(str(l).upper() in POOLS_CONCENTREES for l in p.get("labels") or []):
+                    concentree[k] = concentree.get(k, 0) + liq
                 if k not in best or liq > best[k][0]:
                     best[k] = (liq, p)
             time.sleep(0.3)
@@ -99,6 +105,7 @@ def enrich(cands):
     for k, (liq, p) in best.items():
         t = depuis_paire(p, cands[k])
         t["liq_totale"] = totale.get(k, liq)
+        t["liq_concentree_pct"] = round(100 * concentree.get(k, 0) / max(t["liq_totale"], 1))
         out.append(t)
     return out
 
