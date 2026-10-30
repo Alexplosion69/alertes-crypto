@@ -39,12 +39,12 @@ CALENDRIER = Path("evenements_calendrier.txt")
 TRENDS_URL = "https://trends.google.com/trending/rss"
 TRENDS_PAYS = ("US",)
 RADAR_TOUTES_MIN = 30
-RADAR_TRAFIC_MIN = 1_000          # « 1000+ recherches » : un vrai pic aux États-Unis
-RADAR_TRAFIC_MEME = 200           # plus bas si des tokens sont déjà nés sur le sujet…
-RADAR_TOKENS_MEME = 2             # …au moins 2 en 48 h
-RADAR_MAX_JOUR = 8                # pas plus de 8 notifs actu par jour
+RADAR_TRAFIC_MIN = 10_000         # 31/10 : à 1 000-2 000 recherches, trop de bruit (Keanu Reeves, The Voice…)
+RADAR_TOKEN_LIQ = 10_000          # il faut AUSSI au moins un token vivant dessus (≥ 10 k$ de liquidité)
+RADAR_SANS_TOKEN = 100_000        # exception : événement énorme, même sans token (annonce Apple, Tesla…)
+RADAR_SANS_TOKEN_SPORT = 500_000  # pour le sport, il faut que ce soit gigantesque (finale de Coupe du monde)
+RADAR_MAX_JOUR = 4                # pas plus de 4 notifs actu par jour
 RADAR_MAX_PASSAGE = 2             # et 2 par passage (pas de rafale au démarrage)
-RADAR_TRAFIC_SPORT = 10_000       # sport (entraîneur viré, transfert…) : seulement si c'est énorme
 SPORT = re.compile(r"espn|cbssports|bleacherreport|si\.com|nfl|nba|mlb|nhl|ncaa|/sports?/|football|"
                    r"baseball|basketball|soccer|tennis|golf|athletic|247sports|onsi|yardbarker|gmenhq",
                    re.I)
@@ -209,14 +209,14 @@ def radar(envoyer):
     envoyes = 0
     for s in sorted(lire_tendances(), key=lambda s: -s["trafic"]):
         cle = _norm(s["sujet"])
-        if not cle or cle in _etat["vus"] or s["trafic"] < RADAR_TRAFIC_MEME:
-            continue
+        if not cle or cle in _etat["vus"] or s["trafic"] < RADAR_TRAFIC_MIN:
+            continue                      # pas encore assez gros : on le reverra s'il grossit
         toks = tokens_du_sujet(s["sujet"])
-        if s["trafic"] < RADAR_TRAFIC_MIN and len(toks) < RADAR_TOKENS_MEME:
-            continue                      # ni gros pic, ni tokens : on le reverra s'il grossit
+        vivants = [t for t in toks if t["liq"] >= RADAR_TOKEN_LIQ]
         sport = bool(SPORT.search(f"{s['lien']} {s['source']} {s['titre']}"))
-        if sport and s["trafic"] < RADAR_TRAFIC_SPORT and len(toks) < RADAR_TOKENS_MEME:
-            continue                      # actu sportive ordinaire : rarement un memecoin
+        seuil_seul = RADAR_SANS_TOKEN_SPORT if sport else RADAR_SANS_TOKEN
+        if not vivants and s["trafic"] < seuil_seul:
+            continue                      # aucun vrai token dessus (pour l'instant)
         _etat["vus"][cle] = now
         if _deja_couvert(s, now):
             continue                      # même actu sous un autre nom (« como vs man utd » / « como - manchester united »)
