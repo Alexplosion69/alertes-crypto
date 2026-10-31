@@ -357,14 +357,18 @@ Tu n'as plus rien à faire : GitHub lance la surveillance **toute seule chaque h
 ### Actu et événements (depuis le 21/10)
 
 - **📰 Sujet chaud** : toutes les 30 min, le bot lit les recherches qui montent sur Google aux
-  États-Unis. Notif seulement si le sujet dépasse **10 000+ recherches** ET qu'au moins un token vivant
-  (≥ 10 k$ de liquidité) existe déjà dessus. Exception : un événement énorme (**100 000+**, ou 500 000+
-  pour le sport) passe même sans token. Maximum 4 par jour. **6 h après**, il te dit si un token du sujet
-  a tenu (au moins 3 h, 20 k$ de liquidité, 100 k$ de mcap).
+  États-Unis. Depuis le 31/10, seules les grosses actus passent : **20 000+ recherches** ET au moins un
+  token vivant (≥ 10 k$ de liquidité) déjà dessus. Exception : un événement énorme (**200 000+**, ou
+  500 000+ pour le sport) passe même sans token. Maximum 3 par jour. **6 h après**, il te dit si un token
+  du sujet a tenu (au moins 3 h, 20 k$ de liquidité, 100 k$ de mcap).
+- **🚀 Catégorie Musk** (31/10) : tout sujet qui touche à Musk (Elon, Tesla, SpaceX, Starship, Grok,
+  Optimus, Roadster…, dans la recherche ou dans le titre de l'article) passe dès **2 000 recherches**,
+  même sans token : avec lui, la hype part en quelques heures. Maximum 5 par jour, à part des autres.
 - **📅 Calendrier** : rappels **14 jours avant**, 7 jours avant, la veille et le jour J pour les événements
   de `evenements_calendrier.txt`. À J-14 et J-7, la liste des tokens solides déjà nés sur le sujet
   (≥ 10 k$ de liquidité, ≥ 5 k$ de volume sur 24 h). Si une de tes positions porte un nom lié, il te
-  rappelle de vendre avant le jour J.
+  rappelle de vendre avant le jour J. **Le jour J et le lendemain**, les mots-clés de l'événement
+  passent dans la même catégorie prioritaire que Musk (dès 2 000 recherches).
 - Commandes : `/actu`, `/evenements`, `/evenement 2026-11-19 GTA 6 gta6,gta`, `/oublie Nom`.
 
 ### Ce qui déclenche une alerte

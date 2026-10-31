@@ -3,11 +3,16 @@ Actu et événements (21/10/2026)
 
 Deux choses :
 1. Calendrier : les événements datés (GTA 6, Black Friday…) de evenements_calendrier.txt et ceux
-   ajoutés avec /evenement. Rappel 7 jours avant, la veille et le jour J. Si tu as une position dont
-   le nom colle à l'événement, on te rappelle de vendre avant (ces tokens s'effondrent souvent le jour J).
+   ajoutés avec /evenement. Rappel 14 et 7 jours avant, la veille et le jour J. Si tu as une position
+   dont le nom colle à l'événement, on te rappelle de vendre avant (ces tokens s'effondrent souvent le
+   jour J).
 2. Radar actu : toutes les 30 min, les recherches qui montent sur Google (États-Unis, là où naissent
-   la plupart des memecoins). Un sujet qui explose, ou un sujet sur lequel des tokens viennent déjà
-   de naître, t'envoie une notif. 6 h plus tard, on regarde si un token du sujet a tenu.
+   la plupart des memecoins). Seules les grosses actus passent (voir RADAR_*). 6 h plus tard, on
+   regarde si un token du sujet a tenu.
+3. Catégorie prioritaire (31/10) : tout ce qui touche à Musk (Tesla, SpaceX, Grok…), et les mots-clés
+   d'un événement du calendrier le jour J et le lendemain, passent dès 2 000 recherches, même sans
+   token : avec Musk, la hype part en quelques heures (Roadster volant : pic ~4 h après la démo).
+   Compteur à part, qui ne prend pas la place des autres notifs actu.
 
 Leçon des alertes : les premiers tokens nés sur une actu meurent presque tous (bots, clones). La notif
 sert à savoir qu'un sujet chauffe ; un token ne vaut le coup que s'il tient plusieurs heures.
@@ -39,12 +44,19 @@ CALENDRIER = Path("evenements_calendrier.txt")
 TRENDS_URL = "https://trends.google.com/trending/rss"
 TRENDS_PAYS = ("US",)
 RADAR_TOUTES_MIN = 30
-RADAR_TRAFIC_MIN = 10_000         # 31/10 : à 1 000-2 000 recherches, trop de bruit (Keanu Reeves, The Voice…)
+RADAR_TRAFIC_MIN = 20_000         # 31/10 (2) : seulement les grosses actus (10 000 laissait encore trop passer)
 RADAR_TOKEN_LIQ = 10_000          # il faut AUSSI au moins un token vivant dessus (≥ 10 k$ de liquidité)
-RADAR_SANS_TOKEN = 100_000        # exception : événement énorme, même sans token (annonce Apple, Tesla…)
+RADAR_SANS_TOKEN = 200_000        # exception : événement énorme, même sans token
 RADAR_SANS_TOKEN_SPORT = 500_000  # pour le sport, il faut que ce soit gigantesque (finale de Coupe du monde)
-RADAR_MAX_JOUR = 4                # pas plus de 4 notifs actu par jour
-RADAR_MAX_PASSAGE = 2             # et 2 par passage (pas de rafale au démarrage)
+RADAR_MAX_JOUR = 3                # pas plus de 3 notifs actu « classiques » par jour
+RADAR_MAX_PASSAGE = 2             # et 2 par passage, toutes catégories (pas de rafale au démarrage)
+PRIO_TRAFIC_MIN = 2_000           # Musk et événements du jour : dès 2 000 recherches, même sans token
+PRIO_MAX_JOUR = 5                 # compteur à part pour cette catégorie
+PRIO_EVT_JOURS = (0, 1)           # mots-clés d'un événement prioritaires le jour J et le lendemain (48 h)
+MUSK = re.compile(r"\b(elon|musk|tesla|spacex|starship|starlink|xai|grok|optimus|neuralink|cybertruck|"
+                  r"cybercab|robotaxi|roadster|boring company|dogecoin)\b", re.I)
+MOTS_MUSK = {"elon", "musk", "tesla", "spacex", "starship", "starlink", "xai", "grok", "optimus",
+             "neuralink", "cybertruck", "cybercab", "robotaxi", "roadster", "boring", "company", "dogecoin"}
 SPORT = re.compile(r"espn|cbssports|bleacherreport|si\.com|nfl|nba|mlb|nhl|ncaa|/sports?/|football|"
                    r"baseball|basketball|soccer|tennis|golf|athletic|247sports|onsi|yardbarker|gmenhq",
                    re.I)
@@ -61,7 +73,7 @@ MOTS_VIDES = {"the", "and", "for", "with", "from", "this", "that", "what", "when
               "who", "why", "news", "today", "live", "game", "vs", "les", "des", "une", "pour", "dans"}
 
 _etat = {"vus": {}, "sujets": [], "rappels": {}, "ajouts": [], "retires": [], "dernier_radar": 0,
-         "envois": []}
+         "envois": [], "envois_prio": []}
 
 
 # ---------------------------------------------------------------- état
@@ -80,6 +92,7 @@ def sauver():
     _etat["vus"] = {k: ts for k, ts in _etat["vus"].items() if now - ts < 3 * 86400}
     _etat["sujets"] = [s for s in _etat["sujets"] if now - s["ts"] < 3 * 86400]
     _etat["envois"] = [ts for ts in _etat["envois"] if now - ts < 86400]
+    _etat["envois_prio"] = [ts for ts in _etat["envois_prio"] if now - ts < 86400]
     aujourd_hui = date.today().isoformat()
     _etat["rappels"] = {k: d for k, d in _etat["rappels"].items() if d >= aujourd_hui[:7]}
     FICHIER.parent.mkdir(exist_ok=True)
@@ -181,8 +194,10 @@ def lire_tendances():
             if not titre:
                 continue
             news = it.find("ht:news_item", ns)
+            titres = [t for t in (n.findtext("ht:news_item_title", default="", namespaces=ns)
+                                  for n in it.findall("ht:news_item", ns)) if t]
             sujets.append({
-                "sujet": titre, "pays": pays,
+                "sujet": titre, "pays": pays, "titres": titres,
                 "trafic": _trafic(it.findtext("ht:approx_traffic", default="", namespaces=ns)),
                 "titre": (news.findtext("ht:news_item_title", default="", namespaces=ns) if news is not None else ""),
                 "source": (news.findtext("ht:news_item_source", default="", namespaces=ns) if news is not None else ""),
@@ -191,8 +206,15 @@ def lire_tendances():
     return sujets
 
 
-def _deja_couvert(s, now):
-    mots = {_norm(m) for m in re.split(r"[\s\-_/]+", s["sujet"]) if len(_norm(m)) >= 3} - MOTS_VIDES
+def _mots_distinctifs(txt):
+    return {_norm(m) for m in re.split(r"[\s\-_/:,.!?'’\"]+", txt or "") if len(_norm(m)) >= 4} - MOTS_VIDES
+
+
+def _deja_couvert(s, now, ignorer=frozenset()):
+    """Même actu déjà envoyée en 12 h ? `ignorer` : mots trop communs dans une catégorie (pour Musk,
+    « tesla » en commun ne veut pas dire « même actu » : résultats trimestriels ≠ voiture volante)."""
+    mots = {_norm(m) for m in re.split(r"[\s\-_/]+", s["sujet"]) if len(_norm(m)) >= 3} - MOTS_VIDES - ignorer
+    titre = _mots_distinctifs(s.get("titre")) - ignorer
     for x in _etat["sujets"]:
         if now - x["ts"] > 12 * 3600:
             continue
@@ -201,7 +223,44 @@ def _deja_couvert(s, now):
         autres = {_norm(m) for m in re.split(r"[\s\-_/]+", x["sujet"]) if len(_norm(m)) >= 3} - MOTS_VIDES
         if any(len(m) >= 4 for m in mots & autres):
             return True                   # un mot distinctif en commun (« como », « trump »…) en 12 h
+        if len(titre & _mots_distinctifs(x.get("titre"))) >= 4:
+            return True                   # même article sous un autre nom de recherche
     return False
+
+
+# ---------------------------------------------------------------- catégorie prioritaire
+def _motif(mot):
+    """« gta6 » doit trouver « GTA 6 », « blackfriday » « Black Friday », « jayz » « Jay-Z »,
+    mais « vote » ne doit pas trouver « devoted »."""
+    lettres = _norm(mot)
+    return re.compile(r"\b" + r"[\s\-'.]*".join(map(re.escape, lettres)) + r"\b", re.I)
+
+
+def evenements_actifs(auj=None):
+    """Événements du calendrier dont c'est le jour J ou le lendemain."""
+    auj = auj or datetime.now(PARIS).date()
+    actifs = []
+    for e in evenements():
+        try:
+            ecart = (auj - date.fromisoformat(e["date"])).days
+        except ValueError:
+            continue
+        if ecart in PRIO_EVT_JOURS:
+            mots = [m for m in e["mots"] + [e["nom"]] if len(_norm(m)) >= 4 and not _norm(m).isdigit()]
+            actifs.append({**e, "motifs": [_motif(m) for m in mots], "ignorer": {_norm(m) for m in mots}})
+    return actifs
+
+
+def categorie(s, actifs):
+    """('musk', None), ('evenement', e) ou (None, None). On regarde la recherche ET les titres
+    d'articles : « flying car » est une actu Musk si l'article parle de Tesla."""
+    texte = " ".join([s["sujet"]] + s.get("titres", []))
+    if MUSK.search(texte):
+        return "musk", None
+    for e in actifs:
+        if any(m.search(texte) for m in e["motifs"]):
+            return "evenement", e
+    return None, None
 
 
 def radar(envoyer):
@@ -209,39 +268,74 @@ def radar(envoyer):
     if now - _etat["dernier_radar"] < RADAR_TOUTES_MIN * 60:
         return
     _etat["dernier_radar"] = now
+    actifs = evenements_actifs()
+    sujets = lire_tendances()
+    for s in sujets:
+        s["cat"], s["evt"] = categorie(s, actifs)
     envoyes = 0
-    for s in sorted(lire_tendances(), key=lambda s: -s["trafic"]):
+    # catégorie prioritaire d'abord : elle ne doit pas attendre derrière une grosse actu classique
+    for s in sorted(sujets, key=lambda s: (s["cat"] is None, -s["trafic"])):
         cle = _norm(s["sujet"])
-        if not cle or cle in _etat["vus"] or s["trafic"] < RADAR_TRAFIC_MIN:
-            continue                      # pas encore assez gros : on le reverra s'il grossit
-        toks = tokens_du_sujet(s["sujet"])
-        vivants = [t for t in toks if t["liq"] >= RADAR_TOKEN_LIQ]
-        sport = bool(SPORT.search(f"{s['lien']} {s['source']} {s['titre']}"))
-        seuil_seul = RADAR_SANS_TOKEN_SPORT if sport else RADAR_SANS_TOKEN
-        if not vivants and s["trafic"] < seuil_seul:
-            continue                      # aucun vrai token dessus (pour l'instant)
-        _etat["vus"][cle] = now
-        if _deja_couvert(s, now):
-            continue                      # même actu sous un autre nom (« como vs man utd » / « como - manchester united »)
-        if len(_etat["envois"]) >= RADAR_MAX_JOUR or envoyes >= RADAR_MAX_PASSAGE:
+        if not cle or cle in _etat["vus"]:
             continue
-        envoyes += 1
-        lignes = [f"📰 <b>Sujet chaud : {html.escape(s['sujet'])}</b> "
-                  f"({format(s['trafic'], ',').replace(',', ' ')}+ recherches Google, {s['pays']})"]
-        if s["titre"]:
-            lien = f"<a href=\"{s['lien']}\">{html.escape(s['titre'])}</a>" if s["lien"] else html.escape(s["titre"])
-            lignes.append(f"🗞️ {lien}" + (f" — {html.escape(s['source'])}" if s["source"] else ""))
-        if toks:
-            lignes.append(f"🪙 {len(toks)} token(s) déjà né(s) dessus en 48 h :")
-            lignes += [f"   · {_ligne_token(t)}" for t in toks[:3]]
+        if s["cat"]:
+            if s["trafic"] < PRIO_TRAFIC_MIN:
+                continue                  # pas encore assez gros : on le reverra s'il grossit
+            if envoyes >= RADAR_MAX_PASSAGE:
+                continue                  # pas marqué « vu » : repris au passage suivant (30 min)
+            toks = tokens_du_sujet(s["sujet"])
+            _etat["vus"][cle] = now
+            ignorer = MOTS_MUSK if s["cat"] == "musk" else s["evt"]["ignorer"]
+            if _deja_couvert(s, now, ignorer) or len(_etat["envois_prio"]) >= PRIO_MAX_JOUR:
+                continue
         else:
-            lignes.append("🪙 Aucun token sur ce sujet pour l'instant.")
+            if s["trafic"] < RADAR_TRAFIC_MIN:
+                continue                  # pas encore assez gros : on le reverra s'il grossit
+            toks = tokens_du_sujet(s["sujet"])
+            vivants = [t for t in toks if t["liq"] >= RADAR_TOKEN_LIQ]
+            sport = bool(SPORT.search(f"{s['lien']} {s['source']} {s['titre']}"))
+            seuil_seul = RADAR_SANS_TOKEN_SPORT if sport else RADAR_SANS_TOKEN
+            if not vivants and s["trafic"] < seuil_seul:
+                continue                  # aucun vrai token dessus (pour l'instant)
+            _etat["vus"][cle] = now
+            if _deja_couvert(s, now):
+                continue                  # même actu sous un autre nom (« como vs man utd » / « como - manchester united »)
+            if len(_etat["envois"]) >= RADAR_MAX_JOUR or envoyes >= RADAR_MAX_PASSAGE:
+                continue
+        envoyes += 1
+        if envoyer(message_radar(s, toks)):
+            _etat["envois_prio" if s["cat"] else "envois"].append(now)
+        _etat["sujets"].append({"ts": now, "sujet": s["sujet"], "trafic": s["trafic"], "lien": s["lien"],
+                                "titre": s["titre"], "cat": s["cat"], "tokens": len(toks), "suivi": False})
+
+
+def message_radar(s, toks):
+    trafic = f"{format(s['trafic'], ',').replace(',', ' ')}+ recherches Google, {s['pays']}"
+    if s["cat"] == "musk":
+        lignes = [f"🚀 <b>Musk : {html.escape(s['sujet'])}</b> ({trafic})"]
+    elif s["cat"] == "evenement":
+        lignes = [f"📅 <b>{html.escape(s['evt']['nom'])} : {html.escape(s['sujet'])}</b> ({trafic})"]
+    else:
+        lignes = [f"📰 <b>Sujet chaud : {html.escape(s['sujet'])}</b> ({trafic})"]
+    if s["titre"]:
+        lien = f"<a href=\"{s['lien']}\">{html.escape(s['titre'])}</a>" if s["lien"] else html.escape(s["titre"])
+        lignes.append(f"🗞️ {lien}" + (f" — {html.escape(s['source'])}" if s["source"] else ""))
+    if toks:
+        lignes.append(f"🪙 {len(toks)} token(s) déjà né(s) dessus en 48 h :")
+        lignes += [f"   · {_ligne_token(t)}" for t in toks[:3]]
+    else:
+        lignes.append("🪙 Aucun token sur ce sujet pour l'instant.")
+    if s["cat"] == "musk":
+        lignes.append("<i>Catégorie Musk : prévenu dès 2 000 recherches, c'est peut-être le début. Pour le "
+                      "Roadster volant, le plus gros token a culminé ~4 h après la démo, puis −95 %. "
+                      f"Les premiers tokens meurent presque tous : je te dis dans {SUIVI_H} h si l'un d'eux a tenu.</i>")
+    elif s["cat"] == "evenement":
+        lignes.append("<i>Jour de l'événement : prévenu dès 2 000 recherches. La hype retombe souvent le jour J, "
+                      f"ne cours pas après. Je te dis dans {SUIVI_H} h si un token a tenu.</i>")
+    else:
         lignes.append(f"<i>Les premiers tokens d'une actu meurent presque tous. Je te dis dans {SUIVI_H} h "
                       "si l'un d'eux a tenu.</i>")
-        if envoyer("\n".join(lignes)):
-            _etat["envois"].append(now)
-        _etat["sujets"].append({"ts": now, "sujet": s["sujet"], "trafic": s["trafic"], "lien": s["lien"],
-                                "tokens": len(toks), "suivi": False})
+    return "\n".join(lignes)
 
 
 def suivis(envoyer):
@@ -368,7 +462,8 @@ def cmd_actu(envoyer):
     lignes = ["📰 <b>Sujets chauds, dernières 24 h</b>"]
     for s in sorted(recents, key=lambda s: -s["ts"]):
         h = datetime.fromtimestamp(s["ts"], PARIS).strftime("%H:%M")
-        lignes.append(f"· {h} {html.escape(s['sujet'])} ({s['trafic']}+ recherches, {s['tokens']} token(s))")
+        icone = {"musk": "🚀 ", "evenement": "📅 "}.get(s.get("cat"), "")
+        lignes.append(f"· {h} {icone}{html.escape(s['sujet'])} ({s['trafic']}+ recherches, {s['tokens']} token(s))")
     envoyer("\n".join(lignes))
 
 
@@ -405,7 +500,8 @@ def cmd_evenement(args, envoyer):
     _etat["retires"] = [n for n in _etat["retires"] if _norm(n) != _norm(nom)]
     sauver()
     envoyer(f"✅ Ajouté : <b>{html.escape(nom)}</b> le {date.fromisoformat(args[0]).strftime('%d/%m/%Y')}. "
-            "Rappels 7 jours avant, la veille et le jour J.")
+            "Rappels 14 et 7 jours avant, la veille et le jour J ; le jour J et le lendemain, "
+            "ses mots-clés passent en priorité dans le radar actu.")
 
 
 def cmd_oublie(args, envoyer):

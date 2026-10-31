@@ -1,13 +1,24 @@
-# Événements datés : rappel 7 jours avant, la veille et le jour J.
-# Format : AAAA-MM-JJ | Nom | mots-clés séparés par des virgules (pour repérer les tokens et tes positions)
+# Événements datés : rappel 14 et 7 jours avant, la veille et le jour J.
+# Le jour J et le lendemain, les mots-clés passent en priorité dans le radar actu (dès 2 000 recherches).
+# Format : AAAA-MM-JJ | Nom | mots-clés séparés par des virgules (pour repérer les tokens, tes positions
+# et l'actu du jour J ; évite les mots trop courants, ils déclencheraient des notifs pour rien)
 # Ajouter depuis Telegram : /evenement 2026-11-19 GTA 6 gta6,gta   ·   retirer : /oublie Nom
 # N'ajoute que des dates confirmées (Super Bowl, keynote Apple, event Tesla… dès qu'elles sont officielles).
+# À ajouter dès que la date est officielle : Starship vol 15 (annoncé entre le 7 et le 21/11),
+# Pokémon Winds and Waves (2027), Optimus V3 (présentation pas encore datée).
 
 2026-10-31 | Halloween | halloween, halloweek, spooky, pumpkin
 2026-11-03 | Élections de mi-mandat aux États-Unis | midterms, election, vote
-2026-11-19 | Sortie de GTA 6 | gta6, gta, vice, dacity, ttwo
+2026-11-15 | Solana Breakpoint (Londres) | breakpoint
+2026-11-19 | Sortie de GTA 6 | gta6, gta, vicecity, dacity, ttwo
 2026-11-26 | Thanksgiving | thanksgiving, turkey
 2026-11-27 | Black Friday | blackfriday, black friday
+2026-12-03 | AG des actionnaires Tesla (22 h, en direct) | tesla, optimus, roadster, cybercab
+2026-12-10 | The Game Awards | gameawards, goty
+2026-12-18 | Avengers: Doomsday et Dune: Part Three | avengers, doomsday, dune, dunesday, marvel
 2026-12-25 | Noël | christmas, santa, xmas, noel
 2027-01-01 | Nouvel an | newyear, 2027
 2027-02-14 | Saint-Valentin | valentine, love
+2027-02-14 | Super Bowl LXI (mi-temps de Jay-Z) | superbowl, jayz, halftime
+2027-06-30 | Shrek 5 | shrek
+2027-12-17 | Avengers: Secret Wars | secretwars, avengers
