@@ -704,7 +704,12 @@ def momentum_observation(st, sv, frais, sent_this_hour=None):
         sec_inconnue = False
         if not ok and t["chain"] in v.CHAINES_OBS and ("indisponible" in sec_txt or "inconnue" in sec_txt):
             ok, sec_inconnue = True, True      # Robinhood : pas de scanner sûr, on note quand même
+        # 31/10 : plus aucune alerte momentum BSC / Base depuis le 23/10 → on note chaque candidat et
+        # la raison d'un refus, pour le voir dans le bilan
+        st.setdefault("mom_candidats", []).append(
+            {"ts": now, "chain": t["chain"], "refus": None if ok else re.sub(r"<[^>]+>", "", sec_txt)[:70]})
         if not ok:
+            print(f"momentum {t['symbol']} écarté : {sec_txt}")
             continue
         n += 1
         envoye = False
@@ -759,6 +764,28 @@ def envoyer_long(texte):
         if not telegram(m):
             ok = telegram(re.sub(r"<[^>]+>", "", m)) and ok   # balises en cause : texte brut
     return ok
+
+
+def diagnostic_momentum(st, now):
+    """Candidats momentum des dernières 24 h par chaîne : combien passent la sécurité, et pourquoi
+    les autres sont refusés."""
+    st["mom_candidats"] = [c for c in st.get("mom_candidats", []) if now - c["ts"] < 48 * 3600]
+    recents = [c for c in st["mom_candidats"] if now - c["ts"] < 24 * 3600]
+    if not recents:
+        return ["🔎 Candidats momentum (24 h) : aucun token n'a passé le filtre de forme"]
+    lignes = ["🔎 Candidats momentum (24 h), avant la sécurité :"]
+    for nom, chaines in (("Solana", ("solana",)), ("BSC / Base", ("bsc", "base"))):
+        cs = [c for c in recents if c["chain"] in chaines]
+        refus = {}
+        for c in cs:
+            if c["refus"]:
+                cle = re.sub(r"\d+([.,]\d+)?", "N", c["refus"].split("\n")[0])[:50]
+                refus[cle] = refus.get(cle, 0) + 1
+        txt = f"   · {nom} : {len(cs)} candidat(s), {sum(1 for c in cs if not c['refus'])} passé(s)"
+        if refus:
+            txt += " · refus : " + ", ".join(f"{k} ×{n}" for k, n in sorted(refus.items(), key=lambda x: -x[1])[:3])
+        lignes.append(html.escape(txt, quote=False))
+    return lignes
 
 
 def bilan_quotidien(st, sv, pf, forcer=False):
@@ -922,6 +949,7 @@ def bilan_quotidien(st, sv, pf, forcer=False):
                      "💪 Alertes en force relative")
     lignes += resume([a for a in alertes if a.get("fort") is False and not a.get("observation")],
                      "   alertes sans force relative (pour comparer)")
+    lignes += diagnostic_momentum(st, now)
     lignes.append(f"<i>💶 gain simulé = {suivi.MISE_SIM:.0f} € par alerte, moitié vendue à x2, tout coupé à −50 % "
                   "avant ça, le reste vendu s'il retombe à x1 ou perd 50 % depuis son plus haut. Frais Fomo : "
                   f"{suivi.FRAIS_PCT * 100:.1f} % par ordre, {suivi.FRAIS_MIN:.2f} € minimum (achat et chaque vente).</i>")
