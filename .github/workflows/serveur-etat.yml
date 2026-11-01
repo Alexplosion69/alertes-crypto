@@ -1,0 +1,19 @@
+name: Serveur Hetzner (état du bot)
+
+# Montre si le bot tourne et ses dernières lignes de journal (le bot n'y écrit jamais tes positions).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  etat:
+    runs-on: [self-hosted, hetzner]
+    timeout-minutes: 5
+    steps:
+      - run: |
+          systemctl is-active bot-crypto
+          systemctl show bot-crypto -p ActiveEnterTimestamp -p NRestarts
+          free -m | head -2
+          sudo journalctl -u bot-crypto --since "-20min" --no-pager | grep -vE "^\s*$" | tail -n 40 | cut -c1-220
