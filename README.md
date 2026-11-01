@@ -849,3 +849,10 @@ Dans le log, la ligne `suivi : 180 tokens, 4 morts, 0 survivant(s) ; wallets : 2
 12 smart` te dit où en est le bot.
 
 Pour tout autre problème : copie les 20 dernières lignes du log et envoie-les à Claude.
+
+### Meteora en simulation (option 15, 01/11 au soir)
+
+`meteora_sim.py` : quand un token de la liste d'attente replie de 10 %, le bot fait comme s'il plaçait
+100 € de SOL dans son pool Meteora (cases de −15 % à −35 % sous le sommet) et suit la position avec les
+vraies bougies de 5 min du pool. Messages « 🧪 Meteora simulé » sur Telegram à l'ouverture et à la
+fermeture, résultat dans le bilan. Aucun argent engagé. Frais estimés comme un fournisseur moyen du pool.

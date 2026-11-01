@@ -28,6 +28,7 @@ from pathlib import Path
 import requests
 
 import attente
+import meteora_sim
 import baleines
 import devs
 import evenements
@@ -599,6 +600,11 @@ def cycle(st, sent_this_hour, sv, pf):
         print(f"suivi : {len(sv['tokens'])} tokens, {len(morts)} morts, {nb_s} survivant(s) ; "
               f"wallets : {n_w} observés, {n_smart} smart")
 
+    try:                                   # Meteora en simulation (aucun argent engagé)
+        meteora_sim.tick(st, sv, frais if r else None, attente.forme, telegram)
+    except Exception as e:
+        print(f"[warn] meteora simulé : {type(e).__name__}")
+
     def envoyer(texte):
         if sent_this_hour[0] >= MAX_ALERTES_HEURE:
             return False
@@ -954,6 +960,7 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         lignes.append("🙋 <b>Ton tri</b> (zones prises contre laissées, même simulation) :")
         lignes += detail(pris, "prises") + detail(laisses, "laissées")
     lignes += strat(tem, "🎲 Témoin : un token au hasard, mêmes filtres")
+    lignes += meteora_sim.bilan(st)
     ma, mt = moy(att), moy(tem)
     if ma is not None and mt is not None:
         lignes.append(f"   → écart liste d'attente − témoin : <b>{(ma - mt) * 100:+.0f} points</b> "
