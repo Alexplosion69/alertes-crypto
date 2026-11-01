@@ -103,6 +103,8 @@ def charger():
 
 def sauver(p):
     p["fermees"] = [f for f in p["fermees"] if time.time() - f["fin"] < 90 * 86400]
+    p["choix_zones"] = {z: c for z, c in (p.get("choix_zones") or {}).items()
+                        if z.isdigit() and time.time() - int(z) < 60 * 86400}
     FICHIER.parent.mkdir(exist_ok=True)
     FICHIER.write_text(json.dumps(p, separators=(",", ":")))
 
@@ -187,9 +189,15 @@ def chercher_position(p, nom):
 def commandes(p):
     """Lit les nouveaux messages envoyés au bot et y répond."""
     chat = str(os.getenv("TELEGRAM_CHAT_ID") or "")
-    d = api("getUpdates", offset=p["offset"], timeout=0, allowed_updates=["message"])
+    d = api("getUpdates", offset=p["offset"], timeout=0, allowed_updates=["message", "callback_query"])
     for u in (d or {}).get("result") or []:
         p["offset"] = u["update_id"] + 1
+        if u.get("callback_query"):
+            try:
+                bouton_zone(p, u["callback_query"], chat)
+            except Exception as e:          # un bouton ne doit rien casser
+                print(f"[warn] bouton en erreur : {type(e).__name__}")
+            continue
         msg = u.get("message") or {}
         if str((msg.get("chat") or {}).get("id")) != chat:
             continue                        # quelqu'un d'autre écrit au bot : on ignore
@@ -227,6 +235,25 @@ def commandes(p):
         except Exception as e:              # une commande mal tapée ne doit rien casser
             print(f"[warn] commande en erreur : {type(e).__name__}")
             envoyer("😕 Je n'ai pas compris. Exemple : <code>/achat ADRESSE 84k</code>\n/aide pour l'aide.")
+
+
+def bouton_zone(p, cq, chat):
+    """Boutons sous une zone d'entrée : « j'ai acheté » (on note, et on suit la position comme /achat)
+    ou « pas pris ». Les choix restent dans la mémoire privée du bot, jamais dans les journaux."""
+    msg = cq.get("message") or {}
+    if str((msg.get("chat") or {}).get("id")) != chat:
+        return
+    morceaux = (cq.get("data") or "").split(":")
+    if len(morceaux) < 2 or morceaux[0] not in ("za", "zp"):
+        return
+    zid, achete = morceaux[1], morceaux[0] == "za"
+    p.setdefault("choix_zones", {})[zid] = "achete" if achete else "passe"
+    api("answerCallbackQuery", callback_query_id=cq.get("id"), text="Noté 👍")
+    api("editMessageReplyMarkup", chat_id=chat, message_id=msg.get("message_id"),
+        reply_markup={"inline_keyboard": [[{"text": "✅ Noté : acheté" if achete else "⏭️ Noté : pas pris",
+                                            "callback_data": "zx"}]]})
+    if achete and len(morceaux) >= 3:
+        cmd_achat(p, [morceaux[2]])     # suivi de la position au prix du moment (corrigeable avec /vente)
 
 
 def cmd_achat(p, args):

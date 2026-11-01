@@ -592,7 +592,8 @@ def cycle(st, sent_this_hour, sv, pf):
             devs.marquer_mort(k)
         suivi.retirer(sv, morts + fins)
         nb_s = alertes_survivants(st, sv, frais, sent_this_hour) if SURVIVANTS_ACTIFS else 0
-        attente.tick(st, sv, frais, securite, telegram, lambda t: suivi.ajouter(sv, t, garder=True))
+        attente.tick(st, sv, frais, securite, telegram, lambda t: suivi.ajouter(sv, t, garder=True),
+                     smart_set=portefeuilles.smart(pf))
         momentum_observation(st, sv, frais, sent_this_hour)
         n_w, n_smart = portefeuilles.stats(pf)
         print(f"suivi : {len(sv['tokens'])} tokens, {len(morts)} morts, {nb_s} survivant(s) ; "
@@ -936,6 +937,22 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     att = [a for a in alertes if a.get("type") == "attente"]
     tem = [a for a in alertes if a.get("type") == "temoin"]
     lignes += strat(att, "📋 Liste d'attente : zones d'entrée")
+    # confirmations du repli (observation) : est-ce qu'elles séparent les bonnes zones des mauvaises ?
+    p_hausse = [a for a in att if a.get("porteurs0") and a.get("porteurs") and a["porteurs"] > a["porteurs0"]]
+    p_baisse = [a for a in att if a.get("porteurs0") and a.get("porteurs") and a["porteurs"] <= a["porteurs0"]]
+    if p_hausse or p_baisse:
+        lignes += detail(p_hausse, "porteurs en hausse pendant l'attente") + detail(p_baisse, "porteurs en baisse")
+    s_oui = [a for a in att if a.get("smart_achats")]
+    s_non = [a for a in att if "smart_achats" in a and not a.get("smart_achats")]
+    if s_oui or s_non:
+        lignes += detail(s_oui, "smart wallets acheteurs pendant le repli") + detail(s_non, "aucun smart wallet acheteur")
+    # ton tri (boutons « j'ai acheté / pas pris ») : en privé, seulement sur Telegram
+    choix = (positions.charger().get("choix_zones") or {})
+    pris = [a for a in att if choix.get(str(a.get("zid"))) == "achete"]
+    laisses = [a for a in att if choix.get(str(a.get("zid"))) == "passe"]
+    if pris or laisses:
+        lignes.append("🙋 <b>Ton tri</b> (zones prises contre laissées, même simulation) :")
+        lignes += detail(pris, "prises") + detail(laisses, "laissées")
     lignes += strat(tem, "🎲 Témoin : un token au hasard, mêmes filtres")
     ma, mt = moy(att), moy(tem)
     if ma is not None and mt is not None:

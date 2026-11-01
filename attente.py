@@ -24,6 +24,7 @@ import os
 import random
 import re
 import time
+from datetime import datetime
 
 import requests
 
@@ -54,6 +55,8 @@ REPLI_CASSE = 0.50            # plus de 50 % sous le sommet : le scénario est c
 # --- 5. videur
 ST_SNIPERS_MAX, ST_GROUPES_MAX, ST_INITIES_MAX = 10, 10, 15     # % de l'offre (Solana Tracker)
 CLAUDE_MODELE = os.getenv("CLAUDE_MODEL_VIDEUR", "claude-haiku-5-5")
+# --- confirmations du repli (observation : affichées et comptées dans le bilan, pas un filtre)
+SMART_TRADES_PAGE = True      # lit les derniers échanges du pool (1 appel GeckoTerminal par zone)
 # --- témoin
 TEMOIN_TOUTES_MIN = 60
 MAX_ZONES_PAR_RELEVE = 3      # vérifications de sécurité par relevé (API gratuites)
@@ -101,13 +104,37 @@ def forme(e, t, now):
 
 
 # ---------------------------------------------------------------- videurs
-def solana_tracker(t):
-    """Snipers, achats groupés au lancement et initiés (Solana Tracker, offre gratuite : 2 500
-    requêtes/mois). Renvoie (ok, texte) ; (True, "") sans clé ou hors Solana."""
+_ST_CACHE = {}
+
+
+def _st_token(t):
+    """Fiche Solana Tracker du token (offre gratuite : 10 000 requêtes/mois), gardée 1 h."""
     cle = os.getenv("SOLANATRACKER_API_KEY", "").strip()
     if not cle or t["chain"] != "solana":
+        return None
+    ts, d = _ST_CACHE.get(t["address"], (0, None))
+    if time.time() - ts > 3600:
+        d = v.get_json(f"https://data.solanatracker.io/tokens/{t['address']}", headers={"x-api-key": cle}) or {}
+        _ST_CACHE[t["address"]] = (time.time(), d)
+    return d
+
+
+def porteurs(t):
+    """Nombre de porteurs (Solana Tracker), ou None."""
+    d = _st_token(t) or {}
+    try:
+        n = int(d.get("holders") or 0)
+    except (TypeError, ValueError):
+        return None
+    return n or None
+
+
+def solana_tracker(t):
+    """Snipers, achats groupés au lancement et initiés (Solana Tracker). Renvoie (ok, texte) ;
+    (True, "") sans clé ou hors Solana."""
+    if not os.getenv("SOLANATRACKER_API_KEY", "").strip() or t["chain"] != "solana":
         return True, ""
-    d = v.get_json(f"https://data.solanatracker.io/tokens/{t['address']}", headers={"x-api-key": cle}) or {}
+    d = _st_token(t) or {}
     r = d.get("risk") or {}
     if not r:
         return True, "Solana Tracker sans réponse"
@@ -164,6 +191,55 @@ def videur_claude(t, f, sec_txt, st_txt):
     return verdict == "oui", raison
 
 
+# ---------------------------------------------------------------- confirmations du repli
+def smart_pendant_repli(t, e, smart_set, depuis):
+    """Lit les derniers échanges du pool : wallets « smart » qui ont acheté ou vendu depuis le sommet,
+    et acheteurs / vendeurs distincts. Renvoie un dict (vide si rien de lisible)."""
+    net = v.GT_NETWORKS.get(t["chain"])
+    pool = (e or {}).get("pair")
+    if not net or not pool:
+        return {}
+    data = v.gt_get(f"/networks/{net}/pools/{pool}/trades") or {}
+    ach, ven, sa, sv_ = set(), set(), set(), set()
+    for item in data.get("data") or []:
+        a = item.get("attributes") or {}
+        try:
+            ts = datetime.fromisoformat(str(a.get("block_timestamp")).replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            continue
+        w = a.get("tx_from_address")
+        if not w or ts < depuis:
+            continue
+        k = v.key_of(t["chain"], w)
+        if a.get("kind") == "buy":
+            ach.add(k)
+            if k in smart_set:
+                sa.add(k)
+        elif a.get("kind") == "sell":
+            ven.add(k)
+            if k in smart_set:
+                sv_.add(k)
+    if not ach and not ven:
+        return {}
+    return {"smart_achats": len(sa), "smart_ventes": len(sv_), "acheteurs": len(ach), "vendeurs": len(ven)}
+
+
+def _envoyer_zone(texte, zid, adresse):
+    """Envoie la zone d'entrée avec deux boutons : « j'ai acheté » / « pas pris » (ton tri, option 2)."""
+    token, chat = os.getenv("TELEGRAM_BOT_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
+    if not token or not chat:
+        return False
+    clavier = {"inline_keyboard": [[{"text": "✅ J'ai acheté", "callback_data": f"za:{zid}:{adresse}"[:64]},
+                                    {"text": "⏭️ Pas pris", "callback_data": f"zp:{zid}"}]]}
+    try:
+        r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", timeout=20,
+                          json={"chat_id": chat, "text": texte, "parse_mode": "HTML",
+                                "disable_web_page_preview": True, "reply_markup": clavier})
+        return r.status_code == 200
+    except requests.RequestException:
+        return False
+
+
 # ---------------------------------------------------------------- boucle (à chaque relevé de 30 min)
 def _fmt(x):
     return f"{x / 1e6:.2f} M$" if x >= 1e6 else f"{x / 1e3:.0f} k$"
@@ -175,7 +251,7 @@ def _noter(st, t, typ, **extra):
                          "price": t["price"], "mcap": t["mcap"], "url": t.get("dexscreener"), **extra})
 
 
-def tick(st, sv, frais, securite, envoyer, ajouter_suivi):
+def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset()):
     """Met à jour la liste d'attente avec le dernier relevé de prix et enregistre zones et témoin."""
     now = time.time()
     liste = st.setdefault("attente", {})
@@ -192,7 +268,7 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi):
         if t["key"] in liste or t["key"] in deja or not eligible(t) or not sv["tokens"].get(t["key"]):
             continue
         if evitement(t) is None:
-            liste[t["key"]] = {"ajoute": now, "liq_max": t["liq"], "symbol": t["symbol"]}
+            liste[t["key"]] = {"ajoute": now, "liq_max": t["liq"], "symbol": t["symbol"], "porteurs0": porteurs(t)}
 
     # 3-4. suivi des tokens en attente
     zones = 0
@@ -239,6 +315,15 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi):
         if ok_c is False:
             _noter(st, t, "attente_jete", etape="Claude", raison=raison_c[:120])
             continue
+        # confirmations (observation) : porteurs depuis l'entrée en liste, smart wallets pendant le repli
+        p0, p1 = w.get("porteurs0"), porteurs(t)
+        conf = smart_pendant_repli(t, e, smart_set, f["haut_ts"]) if SMART_TRADES_PAGE else {}
+        conf_txt = []
+        if p0 and p1:
+            conf_txt.append(f"porteurs {p0} → {p1} ({(p1 / p0 - 1) * 100:+.0f} % depuis l'entrée en liste)")
+        if conf:
+            conf_txt.append(f"depuis le sommet : {conf['acheteurs']} acheteurs / {conf['vendeurs']} vendeurs distincts, "
+                            f"smart wallets {conf['smart_achats']} achat(s), {conf['smart_ventes']} vente(s)")
         # 6. zone d'entrée validée
         stop = f["bas"] * f["ratio_mcap"] * 0.9
         lignes = [
@@ -250,13 +335,16 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi):
             f"🛡️ {sec_txt}",
             f"🔍 {st_txt}" if st_txt else "",
             f"🤖 Claude : {html.escape(raison_c)}",
+            ("🔎 " + " · ".join(conf_txt)) if conf_txt else "",
             f"🎯 Coupe sous {_fmt(stop)} (10 % sous le plancher) ; moitié à x2 ; sortie forcée à 24 h si rien ne bouge.",
             f"<a href=\"{t.get('dexscreener')}\">Voir sur DexScreener</a>",
             "<i>Signal en test, pas un conseil. Petite mise seulement.</i>",
         ]
-        envoye = bool(EN_DIRECT and envoyer("\n".join(x for x in lignes if x)))
+        zid = int(now)
+        envoye = bool(EN_DIRECT and _envoyer_zone("\n".join(x for x in lignes if x), zid, t["address"]))
         _noter(st, t, "attente", envoye=envoye, hausse=round(f["hausse"], 2), repli_pct=round(f["repli"] * 100),
-               videur=("oui" if ok_c else "non configuré"), raison_claude=raison_c[:120])
+               videur=("oui" if ok_c else "non configuré"), raison_claude=raison_c[:120], zid=zid,
+               porteurs0=p0, porteurs=p1, **conf)
         ajouter_suivi(t)
         print(f"liste d'attente : zone d'entrée {t['symbol']} (repli {f['repli'] * 100:.0f} %)")
 
