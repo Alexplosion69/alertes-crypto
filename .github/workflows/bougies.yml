@@ -1,0 +1,128 @@
+name: Export des bougies (test des sorties)
+
+# Pour chaque alerte et chaque signal passés, récupère les bougies de 5 minutes de GeckoTerminal
+# sur les 48 h qui suivent, et les écrit compressées dans le journal d'exécution. Sert à tester
+# des règles de sortie (vendre la moitié à x2, stop, suiveur…) sur le vrai chemin du prix.
+# Données de marché publiques seulement. Tes positions (alertes/positions.json) ne sont JAMAIS lues.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bougies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: alertes
+          key: alertes-etat-bougies-${{ github.run_id }}
+          restore-keys: alertes-etat-
+
+      - name: Bougies des alertes passées
+        shell: python
+        run: |
+          import base64, gzip, json, time
+          import requests
+          NET = {"solana": "solana", "base": "base", "bsc": "bsc"}
+          H48 = 48 * 3600
+          def lire(nom):
+              try:
+                  return json.load(open(f"alertes/{nom}"))
+              except (OSError, ValueError):
+                  return {}
+          st, pf = lire("etat.json"), lire("portefeuilles.json")
+          items = [dict(a, src="alerte") for a in st.get("alerts", [])]
+          items += [dict(s, type="smart", src="signal") for s in pf.get("signaux", [])]
+          now = time.time()
+          items = [a for a in items if a.get("chain") in NET and a.get("price") and a.get("ts")
+                   and now - a["ts"] >= 24 * 3600]
+          print(f"{len(items)} alertes et signaux de plus de 24 h")
+
+          # 1. la bonne paire (DexScreener met l'adresse de paire en minuscules dans ses liens)
+          paires = {}
+          par_chaine = {}
+          for a in items:
+              par_chaine.setdefault(a["chain"], set()).add(a["address"])
+          for ch, adrs in par_chaine.items():
+              adrs = sorted(adrs)
+              for i in range(0, len(adrs), 30):
+                  try:
+                      r = requests.get(f"https://api.dexscreener.com/tokens/v1/{ch}/{','.join(adrs[i:i + 30])}", timeout=30)
+                      for p in (r.json() if r.ok else []) or []:
+                          base = (p.get("baseToken") or {}).get("address")
+                          paires.setdefault((ch, base), []).append(
+                              (p.get("pairAddress"), (p.get("liquidity") or {}).get("usd") or 0))
+                  except (requests.RequestException, ValueError) as e:
+                      print("[warn] dexscreener", ch, type(e).__name__)
+                  time.sleep(0.4)
+
+          def pool_de(a):
+              cible = (a.get("url") or "").rstrip("/").split("/")[-1].lower()
+              cands = paires.get((a["chain"], a["address"])) or []
+              for adr, _ in cands:
+                  if adr and adr.lower() == cible:
+                      return adr
+              if cands:
+                  return max(cands, key=lambda x: x[1])[0]
+              return cible if a["chain"] != "solana" else None
+
+          # 2. bougies GeckoTerminal (sans clé : on espace les appels)
+          dernier = [0.0]
+          def gt(path):
+              for essai in range(5):
+                  attente = 2.2 - (time.time() - dernier[0])
+                  if attente > 0:
+                      time.sleep(attente)
+                  dernier[0] = time.time()
+                  try:
+                      r = requests.get("https://api.geckoterminal.com/api/v2" + path, timeout=30,
+                                       headers={"Accept": "application/json"})
+                  except requests.RequestException:
+                      time.sleep(10)
+                      continue
+                  if r.status_code == 429:
+                      time.sleep(30 + 15 * essai)
+                      continue
+                  return r.json() if r.ok else None
+              return None
+
+          def g(x):
+              return float(f"{x:.4g}")
+
+          sortie, sans_pool, vides = [], 0, 0
+          for n, a in enumerate(items):
+              pool = pool_de(a)
+              if not pool:
+                  sans_pool += 1
+                  continue
+              fin = int(a["ts"] + H48)
+              d = gt(f"/networks/{NET[a['chain']]}/pools/{pool}/ohlcv/minute?aggregate=5&limit=600"
+                     f"&before_timestamp={fin}&currency=usd&token=base") or {}
+              liste = sorted(((d.get("data") or {}).get("attributes") or {}).get("ohlcv_list") or [])
+              p0 = a["price"]
+              b = [[int((c[0] - a["ts"]) // 60), g(c[2] / p0), g(c[3] / p0), g(c[4] / p0)]
+                   for c in liste if c[0] >= a["ts"] - 300 and c[2] and c[3] and c[4]]
+              if not b:
+                  vides += 1
+              sortie.append({"k": a["key"], "sym": a.get("symbol"), "type": a.get("type", "classique"),
+                             "src": a["src"], "ch": a["chain"], "ts": a["ts"], "p": p0,
+                             "obs": bool(a.get("observation")), "tard": bool(a.get("trop_tard")),
+                             "env": a.get("envoye"), "b": b})
+              if n % 50 == 0:
+                  print(f"{n}/{len(items)} ({vides} sans bougies, {sans_pool} sans paire)", flush=True)
+
+          print(f"fini : {len(sortie)} alertes, {vides} sans bougies, {sans_pool} sans paire")
+          z = base64.b64encode(gzip.compress(json.dumps(sortie, separators=(",", ":")).encode(), 9)).decode()
+          print("EXPORT_DEBUT", len(z))
+          for i in range(0, len(z), 8000):
+              print("EXPORT|" + z[i:i + 8000])
+          print("EXPORT_FIN")
