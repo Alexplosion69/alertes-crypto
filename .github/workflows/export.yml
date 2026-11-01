@@ -1,8 +1,9 @@
 name: Export des données (analyse)
 
-# Copie la mémoire du bot (alertes, suivi 7 jours, signaux) dans une archive téléchargeable pendant
-# 1 jour, pour analyser les stratégies. Lecture seule : ne touche ni à la surveillance ni au cache.
-# Tes positions et ton journal de trades (alertes/positions.json) ne sont JAMAIS exportés.
+# Écrit dans le journal d'exécution une copie compressée des données utiles à l'analyse des
+# stratégies : alertes et leur gain simulé, signaux smart wallets, achats des baleines, suivi des
+# prix sur 7 jours. Lecture seule : ne touche ni à la surveillance ni au cache.
+# Tes positions et ton journal de trades (alertes/positions.json) ne sont JAMAIS lus.
 on:
   workflow_dispatch:
 
@@ -22,18 +23,23 @@ jobs:
           key: alertes-etat-export-${{ github.run_id }}
           restore-keys: alertes-etat-
 
-      - name: Préparer l'export (sans tes positions)
+      - name: Exporter (sans tes positions)
+        shell: python
         run: |
-          mkdir -p export
-          for f in alertes/*.json; do
-            case "$(basename "$f")" in
-              positions.json) echo "ignoré : $f (privé)";;
-              *) cp "$f" export/ && echo "exporté : $f ($(du -h "$f" | cut -f1))";;
-            esac
-          done
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: donnees-analyse
-          path: export/
-          retention-days: 1
+          import base64, gzip, json
+          def lire(nom):
+              try:
+                  return json.load(open(f"alertes/{nom}"))
+              except (OSError, ValueError):
+                  return {}
+          st, pf, bal = lire("etat.json"), lire("portefeuilles.json"), lire("baleines.json")
+          d = {"alerts": st.get("alerts", []), "mom_candidats": st.get("mom_candidats", []),
+               "signaux": pf.get("signaux", []),
+               "wallets_nw": [x[:2] for x in pf.get("w", {}).values()],
+               "baleines_achats": bal.get("achats", []), "baleines_noms": sorted(bal.get("baleines", {})),
+               "suivi": lire("suivi.json")}
+          z = base64.b64encode(gzip.compress(json.dumps(d, separators=(",", ":")).encode(), 9)).decode()
+          print("EXPORT_DEBUT", len(z))
+          for i in range(0, len(z), 8000):
+              print("EXPORT|" + z[i:i + 8000])
+          print("EXPORT_FIN")
