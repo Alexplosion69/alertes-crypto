@@ -1,0 +1,71 @@
+name: Tester les clés
+
+# Vérifie en 1 minute que les secrets facultatifs marchent (Claude et Solana Tracker) et t'envoie le
+# résultat sur Telegram. N'affiche jamais les clés. Indépendant de la surveillance (lancé à la main).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-cles
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Tester
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SOLANATRACKER_API_KEY: ${{ secrets.SOLANATRACKER_API_KEY }}
+        shell: python
+        run: |
+          import os, requests, attente
+          lignes = ["🔑 <b>Test des clés</b>"]
+          cle = os.getenv("ANTHROPIC_API_KEY", "").strip()
+          if not cle:
+              lignes.append("❌ Claude : secret ANTHROPIC_API_KEY absent ou vide")
+          else:
+              try:
+                  r = requests.post("https://api.anthropic.com/v1/messages", timeout=40,
+                                    headers={"x-api-key": cle, "anthropic-version": "2023-06-01",
+                                             "content-type": "application/json"},
+                                    json={"model": attente.CLAUDE_MODELE, "max_tokens": 20,
+                                          "messages": [{"role": "user", "content": "Réponds juste : OK"}]})
+                  if r.ok:
+                      txt = "".join(b.get("text", "") for b in r.json().get("content") or []).strip()
+                      lignes.append(f"✅ Claude ({attente.CLAUDE_MODELE}) répond : « {txt[:40]} »")
+                  else:
+                      err = (r.json().get("error") or {}) if r.headers.get("content-type", "").startswith("application/json") else {}
+                      lignes.append(f"❌ Claude : erreur {r.status_code} ({err.get('type', '?')} : {str(err.get('message', ''))[:120]})")
+              except requests.RequestException as e:
+                  lignes.append(f"❌ Claude : pas de réponse ({type(e).__name__})")
+          cle = os.getenv("SOLANATRACKER_API_KEY", "").strip()
+          if not cle:
+              lignes.append("❌ Solana Tracker : secret SOLANATRACKER_API_KEY absent ou vide")
+          else:
+              try:
+                  r = requests.get("https://data.solanatracker.io/tokens/4kjruqGHDsSqkMdFfCjV7Vb62HPFhtXyWc2t6JpQzDnz",
+                                   headers={"x-api-key": cle}, timeout=30)
+                  if r.ok:
+                      ok, txt = attente.solana_tracker({"chain": "solana", "address": "4kjruqGHDsSqkMdFfCjV7Vb62HPFhtXyWc2t6JpQzDnz"})
+                      lignes.append(f"✅ Solana Tracker répond (test sur GTA6) : {txt}")
+                  else:
+                      lignes.append(f"❌ Solana Tracker : erreur {r.status_code} ({r.text[:120]})")
+              except requests.RequestException as e:
+                  lignes.append(f"❌ Solana Tracker : pas de réponse ({type(e).__name__})")
+          texte = "\n".join(lignes)
+          print(texte)
+          tok, chat = os.getenv("TELEGRAM_BOT_TOKEN", "").strip(), os.getenv("TELEGRAM_CHAT_ID", "").strip()
+          if tok and chat:
+              requests.post(f"https://api.telegram.org/bot{tok}/sendMessage", timeout=20,
+                            json={"chat_id": chat, "text": texte, "parse_mode": "HTML"})
