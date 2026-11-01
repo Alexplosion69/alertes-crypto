@@ -29,7 +29,9 @@ jobs:
           SOLANATRACKER_API_KEY: ${{ secrets.SOLANATRACKER_API_KEY }}
         shell: python
         run: |
-          import os, requests, attente
+          import os, sys
+          sys.path.insert(0, os.getcwd())
+          import requests, attente
           lignes = ["🔑 <b>Test des clés</b>"]
           cle = os.getenv("ANTHROPIC_API_KEY", "").strip()
           if not cle:
