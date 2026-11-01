@@ -73,7 +73,7 @@ MOTS_VIDES = {"the", "and", "for", "with", "from", "this", "that", "what", "when
               "who", "why", "news", "today", "live", "game", "vs", "les", "des", "une", "pour", "dans"}
 
 _etat = {"vus": {}, "sujets": [], "rappels": {}, "ajouts": [], "retires": [], "dernier_radar": 0,
-         "envois": [], "envois_prio": []}
+         "envois": [], "envois_prio": [], "mesures": {}}
 
 
 # ---------------------------------------------------------------- état
@@ -95,6 +95,8 @@ def sauver():
     _etat["envois_prio"] = [ts for ts in _etat["envois_prio"] if now - ts < 86400]
     aujourd_hui = date.today().isoformat()
     _etat["rappels"] = {k: d for k, d in _etat["rappels"].items() if d >= aujourd_hui[:7]}
+    _etat["mesures"] = {k: m for k, m in (_etat.get("mesures") or {}).items()
+                        if m.get("date", "9999") >= (date.today() - timedelta(days=60)).isoformat()}
     FICHIER.parent.mkdir(exist_ok=True)
     FICHIER.write_text(json.dumps(_etat, separators=(",", ":")))
 
@@ -441,10 +443,66 @@ def calendrier(envoyer, positions=None):
         envoyer("\n".join(lignes))
 
 
+# ---------------------------------------------------------------- avant / après (option 6 du plan)
+MESURE_AVANT_J, MESURE_APRES_J = 10, 3     # relevé quotidien de J−10 à J+3, bilan à J+3
+
+
+def mesurer(envoyer):
+    """Chaque jour, la mcap des tokens solides de chaque événement proche ; à J+3, le bilan :
+    la hausse se fait-elle avant (J−7 → J−1) ou après (J−1 → J+3) ?"""
+    maintenant = datetime.now(PARIS)
+    if maintenant.hour < 10:
+        return
+    auj = maintenant.date()
+    mesures = _etat.setdefault("mesures", {})
+    for e in evenements():
+        try:
+            jour = date.fromisoformat(e["date"])
+        except ValueError:
+            continue
+        reste = (jour - auj).days
+        if not -MESURE_APRES_J <= reste <= MESURE_AVANT_J:
+            continue
+        cle = f"{_norm(e['nom'])}:{e['date']}"
+        m = mesures.setdefault(cle, {"nom": e["nom"], "date": e["date"], "tokens": {}, "fini": False})
+        if m["fini"] or m.get("dernier") == auj.isoformat():
+            continue
+        m["dernier"] = auj.isoformat()
+        solides, _ = tokens_evenement(e)
+        suivis_ = m["tokens"]
+        for t in solides[:5]:                  # les 5 plus gros, ajoutés une fois puis suivis
+            k = f"{t['chain']}:{t['address']}"
+            suivis_.setdefault(k, {"symbol": t["symbol"], "mcap": {}})
+        par_cle = {f"{t['chain']}:{t['address']}": t for t in solides}
+        for k, s in suivis_.items():
+            t = par_cle.get(k)
+            if t is None:                       # sorti des « solides » : on le cherche quand même
+                d = v.get_json(f"{v.DS}/tokens/v1/{k.split(':')[0]}/{k.split(':', 1)[1]}") or []
+                d = [x for x in d if x.get("marketCap") or x.get("fdv")]
+                mc = max((x.get("marketCap") or x.get("fdv") or 0) for x in d) if d else 0
+            else:
+                mc = t["mcap"]
+            s["mcap"][str(-reste)] = mc         # clé = jour relatif à l'événement (−7, 0, 3…)
+        if reste == -MESURE_APRES_J:
+            m["fini"] = True
+            lignes = [f"📏 <b>{html.escape(e['nom'])} : la hausse s'est-elle faite avant ou après ?</b>"]
+            for s in suivis_.values():
+                mc = s["mcap"]
+                debut = next((mc[j] for j in ("-7", "-6", "-5", "-4", "-3", "-2") if mc.get(j)), None)
+                veille, apres = mc.get("-1"), mc.get(str(MESURE_APRES_J))
+                def pc(a, b):
+                    return f"{(b / a - 1) * 100:+.0f} %" if a and b else "?"
+                lignes.append(f"   · ${html.escape(str(s['symbol']))} : avant {pc(debut, veille)} · "
+                              f"après {pc(veille, apres)}")
+            lignes.append("<i>« avant » = d'environ J−7 à la veille, « après » = de la veille à J+3. "
+                          "Mesuré une fois par jour sur les tokens les plus gros du sujet.</i>")
+            envoyer("\n".join(lignes))
+
+
 # ---------------------------------------------------------------- appelé par la boucle principale
 def tick(envoyer, positions=None):
     for nom, f in (("calendrier", lambda: calendrier(envoyer, positions)), ("radar", lambda: radar(envoyer)),
-                   ("suivis", lambda: suivis(envoyer))):
+                   ("suivis", lambda: suivis(envoyer)), ("mesures", lambda: mesurer(envoyer))):
         try:
             f()
         except Exception as e:            # une source en panne ne doit rien bloquer
