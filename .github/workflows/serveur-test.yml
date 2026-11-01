@@ -1,0 +1,19 @@
+name: Serveur Hetzner (test)
+
+# Vérifie que le runner « hetzner » répond. Ne touche à rien.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: [self-hosted, hetzner]
+    timeout-minutes: 5
+    steps:
+      - run: |
+          echo "machine : $(uname -srm)"; . /etc/os-release; echo "système : $PRETTY_NAME"
+          echo "python : $(python3 --version)"; free -m | head -3; df -h / | tail -1
+          echo "utilisateur : $(whoami)"; sudo -n true && echo "sudo : ok"
+          curl -s -o /dev/null -w "telegram : %{http_code}\n" https://api.telegram.org
