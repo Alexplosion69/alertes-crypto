@@ -395,6 +395,38 @@ def _regle_bougies(bougies):
     return cash + reste * (bougies[-1][2] if bougies else 1.0) - 1, haut
 
 
+def _regle_x15(bougies):
+    """Testée le 01/11 sur 563 alertes (la meilleure en moyenne) : tout vendu à x1,5, stop à −30 %
+    (rempli 3 % plus bas), sinon sortie à 12 h. Bougies : (minutes, haut, bas, clôture)."""
+    der = 1.0
+    for t, h, b, c in bougies:
+        if t > 12 * 60:
+            break
+        der = c
+        if t < 0:
+            continue
+        if b <= 0.7:
+            return min(0.7 * 0.97, c) - 1
+        if h >= 1.5:
+            return 0.5
+    return der - 1
+
+
+def _regle_positions(bougies):
+    """Les alertes de tes positions : stop −50 %, puis sortie si −30 % depuis le plus haut une fois
+    x1,5 atteint ; sinon on garde jusqu'à la fin de la fenêtre."""
+    haut, der = 1.0, 1.0
+    for t, h, b, c in bougies:
+        der = c
+        if t < 0:
+            continue
+        seuil = max(0.5, 0.7 * haut) if haut >= 1.5 else 0.5
+        if b <= seuil:
+            return min(seuil * 0.97, c) - 1
+        haut = max(haut, h)
+    return der - 1
+
+
 def rejouer(alertes, sv):
     """Rejoue jusqu'à REJEU_PAR_CYCLE alertes de plus de 24 h avec les bougies de 5 min de
     GeckoTerminal : plus précis que les relevés de 30 min (sommets et stops réels)."""
@@ -422,6 +454,10 @@ def rejouer(alertes, sv):
             continue
         brut, haut = _regle_bougies(bougies)
         frais = (_frais(1.0) * (3 if haut >= 2 else 2))
+        bt = [((c[0] - a["ts"]) / 60, c[2] / a["price"], c[3] / a["price"], c[4] / a["price"]) for c in liste
+              if c[0] >= a["ts"] - 300 and c[2] and c[3] and c[4]]
         a["rejeu"] = {"net": round(brut - frais, 3), "pic": round(haut, 2),
-                      "creux": round(min(b for _, b, _ in bougies), 2), "n": len(bougies)}
+                      "creux": round(min(b for _, b, _ in bougies), 2), "n": len(bougies),
+                      "x15": round(_regle_x15(bt) - 2 * _frais(1.0), 3),
+                      "pos": round(_regle_positions(bt) - 2 * _frais(1.0), 3)}
     return faits

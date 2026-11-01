@@ -931,6 +931,10 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         rj = [a["rejeu"]["net"] for a in liste if (a.get("rejeu") or {}).get("net") is not None]
         if rj:
             txt += f"\n   rejoué en bougies de 5 min ({len(rj)}) : moyenne {sum(rj) / len(rj) * 100:+.0f} %"
+            for cle, nom in (("x15", "tout à x1,5 / stop −30 % / 12 h"), ("pos", "tes alertes de position")):
+                r2 = [a["rejeu"][cle] for a in liste if (a.get("rejeu") or {}).get(cle) is not None]
+                if r2:
+                    txt += f" · {nom} {sum(r2) / len(r2) * 100:+.0f} %"
         return [txt]
 
     def moy(liste):
