@@ -1,8 +1,9 @@
 name: Alertes temps réel
 
+# 01/11/2026 : le bot tourne maintenant en continu sur le serveur Hetzner (workflow « serveur.yml »).
+# Plus de lancement programmé ici, pour ne jamais avoir deux bots en même temps. Ce workflow reste
+# pour un lancement à la main en secours, si le serveur est arrêté.
 on:
-  schedule:
-    - cron: "7 * * * *"      # relancé chaque heure ; chaque exécution surveille ~52 min
   workflow_dispatch:
     inputs:
       mode:

@@ -1,0 +1,91 @@
+name: Serveur Hetzner (installer / mettre à jour le bot)
+
+# Fait tourner le bot en continu sur le serveur Hetzner (service « bot-crypto », relancé tout seul
+# s'il s'arrête). À chaque modification du code sur main, le serveur reprend la nouvelle version.
+# La mémoire du bot (alertes/, dont tes positions) vit sur le serveur et n'est jamais écrite dans les
+# journaux. Au premier lancement, elle est reprise du cache GitHub de l'ancienne version.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", ".github/workflows/bougies.yml", ".github/workflows/test-cles.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: alertes             # attend la fin d'une éventuelle surveillance GitHub en cours
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    runs-on: [self-hosted, hetzner]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mémoire du bot déjà sur le serveur ?
+        id: memoire
+        run: test -d /home/bot/app/alertes && echo "existe=oui" >> "$GITHUB_OUTPUT" || echo "existe=non" >> "$GITHUB_OUTPUT"
+
+      - name: Reprendre la mémoire depuis le cache GitHub (premier lancement seulement)
+        if: steps.memoire.outputs.existe == 'non'
+        uses: actions/cache/restore@v4
+        with:
+          path: alertes
+          key: alertes-etat-serveur-${{ github.run_id }}
+          restore-keys: alertes-etat-
+
+      - name: Installer le code et le service
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SOLANATRACKER_API_KEY: ${{ secrets.SOLANATRACKER_API_KEY }}
+        run: |
+          set -e
+          APP=/home/bot/app
+          mkdir -p "$APP"
+          # code : tout le dépôt sauf la mémoire, l'historique git et l'environnement Python
+          tar --exclude=./alertes --exclude=./.git --exclude=./.venv -cf - . | tar -xf - -C "$APP"
+          if [ ! -d "$APP/alertes" ]; then
+            if [ -d alertes ]; then cp -r alertes "$APP/alertes"; echo "mémoire reprise du cache GitHub"; else mkdir -p "$APP/alertes"; echo "mémoire vide"; fi
+          fi
+          [ -x "$APP/.venv/bin/python" ] || python3 -m venv "$APP/.venv"
+          "$APP/.venv/bin/pip" install -q -r "$APP/requirements.txt"
+          # clés : dans un fichier lisible par le seul utilisateur « bot »
+          umask 077
+          {
+            echo "TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN"
+            echo "TELEGRAM_CHAT_ID=$TELEGRAM_CHAT_ID"
+            echo "SOLANA_RPC_URL=$SOLANA_RPC_URL"
+            echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+            echo "SOLANATRACKER_API_KEY=$SOLANATRACKER_API_KEY"
+            echo "PYTHONUNBUFFERED=1"
+          } > /home/bot/bot.env
+          sudo tee /etc/systemd/system/bot-crypto.service > /dev/null <<'UNIT'
+          [Unit]
+          Description=Bot crypto d'Alex (alertes, positions, simulations)
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          User=bot
+          WorkingDirectory=/home/bot/app
+          EnvironmentFile=/home/bot/bot.env
+          ExecStart=/home/bot/app/.venv/bin/python alertes.py loop
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+          sudo sed -i 's/^          //' /etc/systemd/system/bot-crypto.service
+          sudo systemctl daemon-reload
+          sudo systemctl enable -q bot-crypto
+          sudo systemctl restart bot-crypto
+          sleep 45
+          systemctl is-active bot-crypto
+          # quelques lignes du journal du bot (jamais tes positions : le bot ne les écrit pas)
+          sudo journalctl -u bot-crypto --since "-1min" --no-pager | tail -n 15 | cut -c1-220
