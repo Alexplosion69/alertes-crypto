@@ -119,10 +119,14 @@ jobs:
                              "env": a.get("envoye"), "b": b})
               if n % 50 == 0:
                   print(f"{n}/{len(items)} ({vides} sans bougies, {sans_pool} sans paire)", flush=True)
+              if len(sortie) >= 100:          # par lots : un arrêt en route ne perd pas tout
+                  zb = base64.b64encode(gzip.compress(json.dumps(sortie, separators=(",", ":")).encode(), 9)).decode()
+                  for i in range(0, len(zb), 8000):
+                      print(f"LOT{n}|" + zb[i:i + 8000])
+                  sortie = []
 
-          print(f"fini : {len(sortie)} alertes, {vides} sans bougies, {sans_pool} sans paire")
+          print(f"fini : {vides} sans bougies, {sans_pool} sans paire")
           z = base64.b64encode(gzip.compress(json.dumps(sortie, separators=(",", ":")).encode(), 9)).decode()
-          print("EXPORT_DEBUT", len(z))
           for i in range(0, len(z), 8000):
-              print("EXPORT|" + z[i:i + 8000])
+              print("LOTFIN|" + z[i:i + 8000])
           print("EXPORT_FIN")
