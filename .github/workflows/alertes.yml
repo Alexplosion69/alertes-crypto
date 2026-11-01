@@ -43,6 +43,9 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+          # facultatifs (liste d'attente) : videur Claude Haiku, snipers et achats groupés
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SOLANATRACKER_API_KEY: ${{ secrets.SOLANATRACKER_API_KEY }}
         run: python alertes.py ${{ inputs.mode || 'loop' }}
 
       # dépôt public : GitHub coupe les tâches programmées après 60 jours sans activité.

@@ -122,11 +122,13 @@ def rafraichir(s, listes_suivies):
         return None
     s["dernier_releve"] = now
     cands = {k: {"chain": e["chain"], "address": e["address"], "sources": ["suivi"], "boost": 0}
-             for k, e in s["tokens"].items()}
+             for k, e in s["tokens"].items() if not e.get("mort")}
     frais = v.enrich(cands)
     by_key = {t["key"]: t for t in frais}
     morts, fins = [], []
     for k, e in s["tokens"].items():
+        if e.get("mort"):
+            continue                                  # token mort gardé pour son historique (bilan)
         t = by_key.get(k)
         if t is None:
             e["absent"] = e.get("absent", 0) + 1
@@ -213,7 +215,7 @@ def simuler(a, x, fin=False):
         s["reste"] = 0.0
 
 
-MISE_SIM = 5.0         # mise simulée en € : à 5 €, la coupure à −50 % reste vendable (minimum ~2 $)
+MISE_SIM = 5.0         # mise simulée en € (achat minimum 2 € et vente minimum 1 € sur Fomo)
 FRAIS_PCT = 0.005      # frais Fomo par ordre (0,45 % constaté, arrondi par prudence)…
 FRAIS_MIN = 0.10       # …avec un minimum de 0,10 € par ordre (achat comme vente)
 
@@ -266,8 +268,16 @@ def force_relative(s, t):
 
 
 def retirer(s, keys):
+    """Retire des tokens du suivi. 01/11 : un token alerté (garder_jusqua) qui meurt reste dans le
+    suivi, marqué mort, jusqu'à la fin de ses 7 jours : avant, son historique de prix était effacé et
+    on ne pouvait pas tester d'autres règles de sortie sur les perdants."""
+    now = time.time()
     for k in keys:
-        s["tokens"].pop(k, None)
+        e = s["tokens"].get(k)
+        if e and e.get("garder_jusqua", 0) > now:
+            e["mort"] = True
+        else:
+            s["tokens"].pop(k, None)
 
 
 # ---------------------------------------------------------------- survivants
@@ -361,3 +371,57 @@ def motif_momentum(e, t, now=None):
         return None
     return {"liq_pct": round(t["liq"] / t["mcap"] * 100, 1),
             "depuis_haut_pct": round((t["price"] / max(e["ath"], t["price"]) - 1) * 100)}
+
+
+# ---------------------------------------------------------------- rejeu en bougies de 5 min (01/11)
+REJEU_PAR_CYCLE = 3           # appels GeckoTerminal par cycle (gratuit, ~10 appels/min)
+REJEU_APRES_H = 24            # on rejoue une alerte quand elle a 24 h…
+REJEU_FENETRE_H = 24          # …sur ses 24 premières heures
+
+
+def _regle_bougies(bougies):
+    """Ta règle sur des bougies (x relatifs au prix d'alerte : haut, bas, clôture), prudente :
+    si une bougie touche à la fois x2 et −50 %, on compte le stop."""
+    cash, reste, haut, moitie = 0.0, 1.0, 1.0, False
+    for h, b, c in bougies:
+        if not moitie:
+            if b <= 0.5:
+                return cash + reste * 0.5 - 1, haut
+            if h >= 2:
+                cash, reste, moitie = 1.0, 0.5, True
+        haut = max(haut, h)
+        if moitie and b <= max(1.0, 0.5 * haut):
+            return cash + reste * max(1.0, 0.5 * haut) - 1, haut
+    return cash + reste * (bougies[-1][2] if bougies else 1.0) - 1, haut
+
+
+def rejouer(alertes, sv):
+    """Rejoue jusqu'à REJEU_PAR_CYCLE alertes de plus de 24 h avec les bougies de 5 min de
+    GeckoTerminal : plus précis que les relevés de 30 min (sommets et stops réels)."""
+    now = time.time()
+    faits = 0
+    for a in alertes:
+        if faits >= REJEU_PAR_CYCLE:
+            break
+        if "rejeu" in a or not a.get("price") or not REJEU_APRES_H * 3600 <= now - a["ts"] <= 6 * 86400:
+            continue
+        net = v.GT_NETWORKS.get(a.get("chain"))
+        e = sv["tokens"].get(a["key"]) or {}
+        pool = e.get("pair") or (a.get("url") or "").rstrip("/").split("/")[-1]
+        if not net or not pool:
+            a["rejeu"] = {"vide": True}
+            continue
+        faits += 1
+        fin = int(a["ts"] + REJEU_FENETRE_H * 3600)
+        d = v.gt_get(f"/networks/{net}/pools/{pool}/ohlcv/minute?aggregate=5&limit=300&before_timestamp={fin}") or {}
+        liste = sorted(((d.get("data") or {}).get("attributes") or {}).get("ohlcv_list") or [])
+        bougies = [(c[2] / a["price"], c[3] / a["price"], c[4] / a["price"]) for c in liste
+                   if c[0] >= a["ts"] - 300 and c[2] and c[3] and c[4]]
+        if not bougies or max(h for h, _, _ in bougies) > X_MAX:
+            a["rejeu"] = {"vide": True}
+            continue
+        brut, haut = _regle_bougies(bougies)
+        frais = (_frais(1.0) * (3 if haut >= 2 else 2))
+        a["rejeu"] = {"net": round(brut - frais, 3), "pic": round(haut, 2),
+                      "creux": round(min(b for _, b, _ in bougies), 2), "n": len(bougies)}
+    return faits

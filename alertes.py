@@ -20,12 +20,14 @@ import html
 import json
 import os
 import re
+import statistics
 import sys
 import time
 from pathlib import Path
 
 import requests
 
+import attente
 import baleines
 import devs
 import evenements
@@ -78,16 +80,24 @@ NARR_ETOILE_ECART = 5         # ⭐ profil SEALS : leader écrasant (≥ 5x le v
 NARR_ETOILE_AGE_H = 1.5       # …et qui a déjà survécu 1 h 30 (SEALS : x25 et 2,1 h)
 CLASSIQUES_EN_DIRECT = False  # 19/10 : -28 % simulés sur 7 j -> enregistrées pour le bilan seulement
 X_ABERRANT = 50               # au-delà de x50 en 7 jours, une alerte est sortie des totaux (à vérifier)
-MOMENTUM_EN_DIRECT = True     # 19/10 : seule catégorie gagnante (+10 % hors meilleur coup) -> envoyé
+MOMENTUM_EN_DIRECT = False    # 01/11 : −23 % sur 102 alertes envoyées en 30 jours -> observation
 ETOILE_LIQ_PCT = 20             # 21/10 : momentum avec liquidité ≥ 20 % de la mcap = +74 % (+38 % sans
                                 # le meilleur) sur le 19-21/10 -> catégorie ⭐ à part, jugée sur la suite
-NARRATIFS_EN_DIRECT = True    # False : enregistrés pour le bilan seulement (1 sur 5 au 13/10 : SEALS x10)
+NARRATIFS_EN_DIRECT = False   # 01/11 : −58 % sur 63 narratifs, 10 % de gagnants -> plus envoyés
+# 01/11 : stratégies perdantes depuis plus de 2 semaines, plus calculées du tout (moins d'appels aux API,
+# un bilan plus lisible). Les remettre à True pour les réactiver.
+CLASSIQUES_ACTIFS = False     # −41 % sur 209 alertes
+NARRATIFS_ACTIFS = False      # −58 % sur 63
+SURVIVANTS_ACTIFS = False     # −15 % sur 46 (remplacés par la liste d'attente, même idée en plus strict)
+BALEINES_ACTIVES = False      # −41 % sur 210 ; tes baleines font 28 achats/jour, leurs achats ne prédisent rien
 
 # --- Survivants (les critères de forme sont dans suivi.py)
 SURV_ACHETEURS_1H_MIN = 30    # acheteurs uniques sur 1 h
 SURV_ACHETEURS_24H_MIN = 300  # acheteurs uniques sur 24 h
 SURV_REALERTE_H = 48
 
+BILAN_TYPES = ("attente", "temoin", "attente_jete", "momentum")
+SMART_STRICT_DEPUIS = 1793552400   # 01/11 17 h UTC : nouvelle définition des smart wallets
 BILAN_HEURE_UTC = 7           # bilan quotidien vers 9 h (heure d'été) / 8 h (heure d'hiver)
 # noms trop génériques (clonés en permanence, ce n'est pas un narratif)
 NOMS_GENERIQUES = {"sol", "solana", "pepe", "doge", "trump", "cat", "dog", "inu", "elon",
@@ -497,11 +507,11 @@ def cycle(st, sent_this_hour, sv, pf):
         w["snaps"].append({"ts": now, "mcap": t["mcap"], "buyers": None})
 
     # narratifs d'abord : un leader signalé ne sera pas re-signalé par l'alerte classique
-    nb_narr = narratifs(st, tokens, sent_this_hour, sv)
+    nb_narr = narratifs(st, tokens, sent_this_hour, sv) if NARRATIFS_ACTIFS else 0
     if nb_narr:
         print(f"{nb_narr} alerte(s) narratif")
     st.setdefault("rejected", {})
-    short = [t for t in tokens if cheap_filter(t)
+    short = [t for t in tokens if CLASSIQUES_ACTIFS and cheap_filter(t)
              and now - st["alerted"].get(t["key"], 0) > REALERTE_H * 3600
              and now - st["rejected"].get(t["key"], 0) > 3600]
     v.add_traders(short)
@@ -581,7 +591,8 @@ def cycle(st, sent_this_hour, sv, pf):
         for k in morts:
             devs.marquer_mort(k)
         suivi.retirer(sv, morts + fins)
-        nb_s = alertes_survivants(st, sv, frais, sent_this_hour)
+        nb_s = alertes_survivants(st, sv, frais, sent_this_hour) if SURVIVANTS_ACTIFS else 0
+        attente.tick(st, sv, frais, securite, telegram, lambda t: suivi.ajouter(sv, t, garder=True))
         momentum_observation(st, sv, frais, sent_this_hour)
         n_w, n_smart = portefeuilles.stats(pf)
         print(f"suivi : {len(sv['tokens'])} tokens, {len(morts)} morts, {nb_s} survivant(s) ; "
@@ -594,10 +605,15 @@ def cycle(st, sent_this_hour, sv, pf):
         sent_this_hour[0] += 1 if ok else 0
         return ok
     portefeuilles.collecter(pf, sv, securite, envoyer)
-    try:
-        baleines.surveiller(st, sv, lambda t: suivi.ajouter(sv, t, garder=True), envoyer)
-    except Exception as e:                 # une source indisponible ne doit pas bloquer le reste
-        print(f"[warn] baleines : {type(e).__name__}")
+    if BALEINES_ACTIVES:
+        try:
+            baleines.surveiller(st, sv, lambda t: suivi.ajouter(sv, t, garder=True), envoyer)
+        except Exception as e:             # une source indisponible ne doit pas bloquer le reste
+            print(f"[warn] baleines : {type(e).__name__}")
+    try:                                   # bougies de 5 min pour les alertes de plus de 24 h
+        suivi.rejouer([a for a in st["alerts"] if a.get("type") in BILAN_TYPES] + pf["signaux"], sv)
+    except Exception as e:
+        print(f"[warn] rejeu : {e!r}")
 
 
 # ---------------------------------------------------------------- Survivants
@@ -694,7 +710,7 @@ def momentum_observation(st, sv, frais, sent_this_hour=None):
         if n >= MOM_MAX_PAR_RELEVE:
             break
         e = sv["tokens"].get(t["key"])
-        if not e or t["key"] in vus or t["key"] in deja:
+        if not e or t["key"] in vus or t["key"] in deja or t["chain"] in v.CHAINES_OBS:
             continue
         m = suivi.motif_momentum(e, t, now)
         if not m:
@@ -741,7 +757,8 @@ def momentum_observation(st, sv, frais, sent_this_hour=None):
                              "price": t["price"], "mcap": t["mcap"], "url": t["dexscreener"],
                              "fort": suivi.force_relative(sv, t)[0], "cause": bool(caritatif(t)),
                              "securite_inconnue": sec_inconnue, "age_h": round(t["age_h"], 1),
-                             "etoile_liq": m["liq_pct"] >= ETOILE_LIQ_PCT, **m})
+                             "etoile_liq": m["liq_pct"] >= ETOILE_LIQ_PCT,
+                             "evitement": (v.flag_wash(t), attente.evitement(t))[1], **m})
         suivi.ajouter(sv, t, garder=True)
     if n:
         print(f"momentum : {n} token(s) enregistré(s)" + (" et envoyé(s)" if MOMENTUM_EN_DIRECT else ""))
@@ -794,7 +811,7 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     # à partir de l'heure prévue, et tant qu'il n'est pas parti aujourd'hui (rattrapage si raté)
     if not forcer and (time.gmtime(now).tm_hour < BILAN_HEURE_UTC or st.get("dernier_bilan") == jour):
         return
-    alertes = [a for a in st["alerts"] if now - a["ts"] < 7 * 86400]
+    alertes = [a for a in st["alerts"] if now - a["ts"] < 7 * 86400 and a.get("type", "classique") in BILAN_TYPES]
     signaux = [s for s in pf["signaux"] if now - s["ts"] < 7 * 86400]
     # alertes faussées par un ancien relevé aberrant (avant le contrôle prix / capitalisation) :
     # on efface leur historique, il est recalculé avec des relevés cohérents
@@ -892,67 +909,57 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         return [f"   · {label} : {len(liste)} · x2 : {x2} · après frais {g * suivi.MISE_SIM:+.2f} € "
                 f"({g / len(liste) * 100:+.0f} %){sans}"]
 
-    lignes = ["📊 <b>Bilan quotidien</b> (7 derniers jours, prix au moment de l'alerte → maintenant)"]
-    titre_cl = "🚨 Classiques" + ("" if CLASSIQUES_EN_DIRECT else " (observation depuis le 19/10)")
-    for typ, titre in (("classique", titre_cl), ("survivant", "🌱 Survivants")):
-        lignes += resume([a for a in alertes if a.get("type", "classique") == typ
-                          and (typ == "classique" or not a.get("observation"))], titre)
-        if typ == "classique":       # tes gagnants ont été repérés vers 400 k$ - 1 M$ : on compare
-            cl = [a for a in alertes if a.get("type", "classique") == "classique"]
-            lignes += resume([a for a in cl if a["mcap"] < 250_000], "   dont mcap &lt; 250 k$ à l'alerte")
-            lignes += resume([a for a in cl if a["mcap"] >= 250_000], "   dont mcap ≥ 250 k$ à l'alerte")
-    lignes += resume([a for a in alertes if a.get("type") == "momentum" and a["chain"] not in v.CHAINES_OBS],
-                     "🚀 Momentum confirmé" + (" (en direct depuis le 19/10)" if MOMENTUM_EN_DIRECT
-                                              else " (observation)"))
-    mom = [a for a in alertes if a.get("type") == "momentum" and a["chain"] not in v.CHAINES_OBS]
-    if mom:                          # quel sous-groupe du momentum gagne vraiment ?
-        lignes.append("   <i>découpage :</i>")
-        lignes += detail([a for a in mom if a["mcap"] < 700_000], "mcap 300-700 k$")
-        lignes += detail([a for a in mom if 700_000 <= a["mcap"] < 1_500_000], "mcap 0,7-1,5 M$")
-        lignes += detail([a for a in mom if a["mcap"] >= 1_500_000], "mcap 1,5-3 M$")
-        lignes += detail([a for a in mom if a.get("liq_pct", 0) >= 20], "liquidité ≥ 20 % de la mcap")
-        lignes += detail([a for a in mom if a.get("liq_pct", 100) < 20], "liquidité &lt; 20 %")
-        lignes += detail([a for a in mom if a.get("depuis_haut_pct", -100) >= -10], "à moins de 10 % de son plus haut")
-        lignes += detail([a for a in mom if a.get("depuis_haut_pct", 0) < -10], "plus de 10 % sous son plus haut")
-        lignes += detail([a for a in mom if a.get("fort")], "tient quand le marché baisse 💪")
-        lignes += detail([a for a in mom if a.get("age_h") is not None and a["age_h"] < 24], "moins de 24 h")
-        lignes += detail([a for a in mom if a.get("age_h") is not None and a["age_h"] >= 24], "24 h et plus")
-        lignes += detail([a for a in mom if a["chain"] == "solana"], "Solana")
-        lignes += detail([a for a in mom if a["chain"] != "solana"], "BSC / Base")
-        liq = [a for a in mom if a.get("liq_pct", 0) >= ETOILE_LIQ_PCT]
-        lignes += detail([a for a in liq if a["chain"] == "solana"], "liquidité ≥ 20 % · Solana")
-        lignes += detail([a for a in liq if a["chain"] != "solana"], "liquidité ≥ 20 % · BSC / Base")
-        lignes += detail([a for a in mom if a.get("liq_pct", 100) < ETOILE_LIQ_PCT and a["chain"] != "solana"],
-                         "liquidité &lt; 20 % · BSC / Base")
-        sans_age = sum(1 for a in mom if a.get("age_h") is None)
-        if sans_age:
-            lignes.append(f"   <i>âge inconnu pour {sans_age} alerte(s) (token disparu du suivi)</i>")
-    # catégorie ⭐ : seulement les alertes marquées ⭐ au moment de l'envoi (à partir du 21/10),
-    # pour la juger sur des alertes qui n'ont pas servi à la choisir
-    lignes += resume([a for a in mom if a.get("etoile_liq")],
-                     "⭐ Momentum liquidité ≥ 20 % (catégorie à part, depuis le 21/10)")
-    lignes += resume([a for a in alertes if a.get("type") == "momentum" and a["chain"] in v.CHAINES_OBS],
-                     "🟣 Momentum sur Robinhood Chain (observation, sécurité souvent non vérifiée)")
-    narr = [a for a in alertes if a.get("type") == "narratif"]
-    lignes += resume([a for a in narr if not a.get("observation")], "🧩 Narratifs envoyés")
-    lignes += resume([a for a in narr if a.get("etoile")], "   dont ⭐ profil SEALS")
-    lignes += resume([a for a in narr if a.get("sature")], "🧩 Narratifs saturés (non envoyés)")
-    lignes += resume([a for a in narr if a.get("identite") == "dediee"], "🪪 Narratifs avec compte X à leur nom")
-    lignes += resume([a for a in narr if a.get("identite") == "tweet"], "🪪 Narratifs « tokens de tweet »")
-    lignes += resume([a for a in alertes if a.get("cause")], "🎗️ Tokens pour une cause (tous types)")
-    lignes += resume([a for a in alertes if a.get("type") == "baleines"],
-                     f"🐳 Baleines ({baleines.BALEINES_MIN}+ sur le même token en {baleines.FENETRE_H} h)")
-    lignes += resume([s for s in signaux if not s["trop_tard"]], "🐋 Smart wallets à temps (observation)")
-    lignes += resume([s for s in signaux if s["trop_tard"]], "🐋 Smart wallets trop tard (observation)")
+    def strat(liste, titre):
+        """Une stratégie : moyenne, médiane, part de gagnants, résultat sans les 3 meilleurs, total, et
+        le rejeu en bougies de 5 min quand il existe (plus précis que les relevés de 30 min)."""
+        liste = [a for a in liste if not aberrant(a)]
+        if not liste:
+            return [f"<b>{titre}</b> : aucun signal pour l'instant"]
+        g = sorted(suivi.resultat_sim_net(a) for a in liste)
+        n, m = len(g), suivi.MISE_SIM
+        txt = (f"<b>{titre}</b> : {n} · moyenne <b>{sum(g) / n * 100:+.0f} %</b> · médiane {statistics.median(g) * 100:+.0f} % · "
+               f"gagnants {sum(x > 0 for x in g) / n * 100:.0f} % · total {sum(g) * m:+.2f} €")
+        if n >= 5:
+            txt += f" · sans les 3 meilleurs {(sum(g) - sum(g[-3:])) / (n - 3) * 100:+.0f} %"
+        rj = [a["rejeu"]["net"] for a in liste if (a.get("rejeu") or {}).get("net") is not None]
+        if rj:
+            txt += f"\n   rejoué en bougies de 5 min ({len(rj)}) : moyenne {sum(rj) / len(rj) * 100:+.0f} %"
+        return [txt]
 
-    lignes += resume([a for a in alertes if a.get("fort") and not a.get("observation")],
-                     "💪 Alertes en force relative")
-    lignes += resume([a for a in alertes if a.get("fort") is False and not a.get("observation")],
-                     "   alertes sans force relative (pour comparer)")
-    lignes += diagnostic_momentum(st, now)
-    lignes.append(f"<i>💶 gain simulé = {suivi.MISE_SIM:.0f} € par alerte, moitié vendue à x2, tout coupé à −50 % "
-                  "avant ça, le reste vendu s'il retombe à x1 ou perd 50 % depuis son plus haut. Frais Fomo : "
-                  f"{suivi.FRAIS_PCT * 100:.1f} % par ordre, {suivi.FRAIS_MIN:.2f} € minimum (achat et chaque vente).</i>")
+    def moy(liste):
+        liste = [a for a in liste if not aberrant(a)]
+        return sum(suivi.resultat_sim_net(a) for a in liste) / len(liste) if liste else None
+
+    lignes = ["📊 <b>Bilan quotidien</b> (7 derniers jours, 5 € simulés par signal, frais compris)",
+              "<i>Depuis le 01/11 : plus d'alerte d'achat en direct. On teste la liste d'attente contre un témoin "
+              "tiré au hasard ; elle ne vaudra quelque chose que si elle le bat sur au moins 50 signaux.</i>"]
+    att = [a for a in alertes if a.get("type") == "attente"]
+    tem = [a for a in alertes if a.get("type") == "temoin"]
+    lignes += strat(att, "📋 Liste d'attente : zones d'entrée")
+    lignes += strat(tem, "🎲 Témoin : un token au hasard, mêmes filtres")
+    ma, mt = moy(att), moy(tem)
+    if ma is not None and mt is not None:
+        lignes.append(f"   → écart liste d'attente − témoin : <b>{(ma - mt) * 100:+.0f} points</b> "
+                      f"({len(att)} contre {len(tem)} signaux)")
+    jetes = [a for a in alertes if a.get("type") == "attente_jete"]
+    if jetes:
+        par = {}
+        for a in jetes:
+            par.setdefault(a.get("etape", "?"), []).append(a)
+        lignes.append("🗑️ Jetés en route (pour vérifier qu'on a eu raison) : " + " · ".join(
+            f"{etape} {len(l)} ({moy(l) * 100:+.0f} %)" for etape, l in par.items() if moy(l) is not None))
+    mom = [a for a in alertes if a.get("type") == "momentum" and a["chain"] not in v.CHAINES_OBS]
+    lignes += strat(mom, "🚀 Momentum (observation)")
+    if mom:
+        avec = [a for a in mom if a.get("evitement")]
+        sans = [a for a in mom if "evitement" in a and not a.get("evitement")]
+        if avec and sans:
+            lignes.append(f"   dont qui passent les filtres d'évitement : {len(sans)} ({moy(sans) * 100:+.0f} %) · "
+                          f"écartés par ces filtres : {len(avec)} ({moy(avec) * 100:+.0f} %)")
+    lignes += strat([s for s in signaux if not s["trop_tard"] and s["ts"] >= SMART_STRICT_DEPUIS],
+                    "🐋 Smart wallets à temps (liste stricte depuis le 01/11)")
+    lignes.append(f"<i>Règle simulée : moitié vendue à x2, tout coupé à −50 % avant ça, le reste vendu s'il retombe "
+                  f"à x1 ou perd 50 % depuis son plus haut. Frais Fomo {suivi.FRAIS_MIN:.2f} € minimum par ordre.</i>")
     pf_pos = positions.charger()
     j = positions.journal_txt(pf_pos, jours=7)
     if j or pf_pos["positions"]:
@@ -963,10 +970,11 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         lignes.append(f"🌡️ Marché : memecoins suivis {m['med_6h']:+.0f} % sur 6 h, {m['med_24h']:+.0f} % "
                       f"sur 24 h (médiane de {m['n']} tokens)")
 
-    recentes = sorted((a for a in alertes + signaux if now - a["ts"] < 86400), key=lambda a: a["ts"])
+    recentes = sorted((a for a in alertes + signaux if now - a["ts"] < 86400 and a.get("type", "smart") in BILAN_TYPES + ("smart",)
+                       and a.get("type") != "attente_jete"), key=lambda a: a["ts"])
     if recentes:
         lignes.append("\n<b>Dernières 24 h :</b>")
-        icones = {"classique": "🚨", "survivant": "🌱", "narratif": "🧩", "momentum": "🚀", "baleines": "🐳"}
+        icones = {"attente": "📋", "temoin": "🎲", "attente_jete": "🗑️", "momentum": "🚀"}
         for a in recentes:
             xn, pk = perf(a)
             ic = "🐋" if "wallets" in a else ("🟣" if a.get("chain") in v.CHAINES_OBS
@@ -977,13 +985,15 @@ def bilan_quotidien(st, sv, pf, forcer=False):
             lignes.append(f"{ic} ${html.escape(str(a['symbol']))}{note} : mcap {fmt_usd(a['mcap'])} · plus haut x{pk:.1f} · {fin}"
                           f" · simulé {suivi.resultat_sim_net(a) * suivi.MISE_SIM:+.2f} €")
     n_w, n_smart = portefeuilles.stats(pf)
-    lignes.append(f"\n🐋 Base de wallets : {n_w} observés, {n_smart} « smart » "
-                  f"(≥ {portefeuilles.SMART_MIN_BONS_COUPS} coups à x{portefeuilles.BON_COUP_X}, "
-                  f"≥ {int(portefeuilles.SMART_MIN_TAUX * 100)} % de réussite)")
-    nb_b, ach_b = baleines.stats()
-    if nb_b:
-        lignes.append(f"🐳 {nb_b} baleine(s) suivie(s), {ach_b} achat(s) repéré(s) en 24 h\n   "
-                      + html.escape(baleines.etat_rpc()))
+    lignes.append(f"\n🐋 Base de wallets : {n_w} observés, {n_smart} « smart » (au moins "
+                  f"{portefeuilles.SMART_MIN_TOKENS} tokens, réussite nettement au-dessus du hasard, "
+                  f"qui est de {portefeuilles.taux_de_base(pf) * 100:.0f} %)")
+    if BALEINES_ACTIVES:
+        nb_b, ach_b = baleines.stats()
+        if nb_b:
+            lignes.append(f"🐳 {nb_b} baleine(s) suivie(s), {ach_b} achat(s) repéré(s) en 24 h\n   "
+                          + html.escape(baleines.etat_rpc()))
+    lignes.append(f"📋 {len(st.get('attente', {}))} token(s) en liste d'attente")
     lignes.append(f"👀 {len(sv['tokens'])} tokens suivis en ce moment")
     lignes.append("<i>« plus haut » = mesuré toutes les 30 min, le vrai sommet a pu être un peu plus haut.</i>")
     if envoyer_long("\n".join(lignes)):

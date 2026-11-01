@@ -7,7 +7,8 @@ Comment la liste se construit (automatiquement, gratuitement) :
      (GeckoTerminal, gratuit) et on note qui a acheté, à quel prix, pour combien ;
   2. si le token monte ensuite à 3x le prix d'achat d'un wallet : un « bon coup » pour lui ;
      si le token meurt ou ne fait pas x3 en 72 h : un coup raté ;
-  3. un wallet devient « smart » quand il a au moins 2 bons coups ET au moins 40 % de réussite.
+  3. un wallet devient « smart » quand il a été vu sur au moins 10 tokens et que son taux de
+     réussite bat nettement le hasard (test statistique, voir SMART_FOIS_HASARD).
      Les bots qui achètent tout (snipers) ont un taux de réussite très bas : ils sont écartés.
 
 Le signal : au moins 3 smart wallets ont acheté le même token (pas forcément en même temps),
@@ -21,6 +22,7 @@ True quand le bilan montre que ça marche.
 Tu peux ajouter des wallets à la main dans portefeuilles_manuels.txt (toujours considérés smart).
 """
 import json
+import math
 import time
 from datetime import datetime
 from pathlib import Path
@@ -40,9 +42,14 @@ ACHAT_MIN_USD = 50            # achats plus petits ignorés (poussière, bots)
 ACHETEURS_MAX_PAR_TOKEN = 400
 BON_COUP_X = 3                # le token a fait x3 après l'achat = bon coup
 RESOLUTION_H = 72             # au bout de 72 h sans x3 : coup raté
-SMART_MIN_BONS_COUPS = 3       # 2 au départ : trop facile avec une base de 2 jours (−45 % au bilan)
-SMART_MIN_TAUX = 0.40
-SMART_MIN_TOKENS = 5           # il faut avoir vu le wallet sur au moins 5 tokens
+# 01/11 : avec « 3 bons coups sur 5 tokens », le bot gardait 948 wallets sur 59 177… alors que le pur
+# hasard en aurait donné environ 1 066 (un token suivi fait x3 après l'achat dans ~25 % des cas).
+# Nouveau critère : assez de tokens, et un taux de réussite dont la borne basse (Wilson, 90 %)
+# dépasse nettement le hasard. Sur les mêmes données : 97 wallets, pour 0,4 attendu par hasard.
+SMART_MIN_BONS_COUPS = 3
+SMART_MIN_TAUX = 0.40          # (affichage) remplacé par le test ci-dessous
+SMART_MIN_TOKENS = 10
+SMART_FOIS_HASARD = 2          # borne basse du taux de réussite ≥ 2x le taux de base
 SIGNAL_MIN_WALLETS = 3        # 2 wallets, ce n'est pas assez
 SIGNAL_TROP_TARD_X = 2        # prix déjà à 2x leur entrée moyenne : trop tard
 SIGNAL_REALERTE_H = 24
@@ -88,9 +95,23 @@ def manuels():
     return res
 
 
+def _wilson_bas(w, n, z=1.64):
+    if n == 0:
+        return 0.0
+    p = w / n
+    return (p + z * z / (2 * n) - z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / (1 + z * z / n)
+
+
+def taux_de_base(pf):
+    n = sum(x[0] for x in pf["w"].values())
+    return sum(x[1] for x in pf["w"].values()) / n if n else 0.25
+
+
 def smart(pf):
+    base = taux_de_base(pf)
     auto = {k for k, (n, w, _) in pf["w"].items()
-            if w >= SMART_MIN_BONS_COUPS and n >= SMART_MIN_TOKENS and w / n >= SMART_MIN_TAUX}
+            if w >= SMART_MIN_BONS_COUPS and n >= SMART_MIN_TOKENS
+            and _wilson_bas(w, n) > SMART_FOIS_HASARD * base}
     return auto | manuels()
 
 

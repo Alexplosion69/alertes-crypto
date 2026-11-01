@@ -354,6 +354,37 @@ Tu n'as plus rien à faire : GitHub lance la surveillance **toute seule chaque h
 
 ## Partie 6 — Au quotidien
 
+### 1er novembre : nouvelle approche (liste d'attente contre témoin)
+
+Le bilan de 30 jours (899 signaux simulés) perdait 28 % en moyenne, toutes stratégies confondues :
+le bot achetait des tokens qui venaient de monter, et c'est justement le moment où ils s'effondrent
+le plus souvent. Détails et chiffres : le doc « Bilan du bot crypto et plan de relance ». Ce qui change :
+
+- **Plus aucune alerte d'achat en direct** pendant le test. Les classiques, narratifs, survivants et
+  baleines ne sont plus calculés ; le momentum reste en observation.
+- **📋 Liste d'attente** (`attente.py`) : tokens installés (24 h+, 300 k$ à 5 M$, liquidité ≥ 10 % de
+  la mcap), sans pub payée, sans volume gonflé, sans pump en cours. Le bot attend une hausse
+  (≥ +30 %) puis un repli de 15 à 35 %, avec une liquidité stable et un plancher qui tient depuis 1 h.
+  Il vérifie alors la sécurité, puis demande à Claude Haiku s'il voit un piège (si la clé est là).
+  Les tokens jetés en route sont gardés pour vérifier qu'on a eu raison.
+- **🎲 Témoin** : une fois par heure, un token tiré au hasard parmi ceux qui passent les mêmes filtres.
+  La liste d'attente ne vaut quelque chose que si elle bat le témoin sur au moins 50 signaux. Alors
+  seulement, on passe `EN_DIRECT = True` en haut de `attente.py`.
+- **Smart wallets** : il faut maintenant 10 tokens observés et un taux de réussite qui bat nettement
+  le hasard (97 wallets au lieu de 948 sur les données du 01/11).
+- **Mesures** : un token alerté qui meurt garde son historique ; chaque signal de plus de 24 h est
+  rejoué en bougies de 5 minutes (GeckoTerminal) ; le bilan montre la médiane, la part de gagnants
+  et le résultat sans les 3 meilleurs.
+
+**Deux secrets facultatifs** (même méthode qu'à la partie 4) :
+- `ANTHROPIC_API_KEY` : la même clé que dans `veille-hype`. Le videur Claude Haiku coûte environ
+  0,001 $ par token vérifié, quelques centimes par mois. Sans elle, le bot saute cette étape.
+- `SOLANATRACKER_API_KEY` : clé gratuite sur solanatracker.io (2 500 requêtes par mois) pour écarter
+  les tokens avec trop de snipers, d'achats groupés au lancement ou d'initiés.
+
+Pour revenir à l'ancien fonctionnement : les réglages `*_ACTIFS` et `*_EN_DIRECT` en haut de
+`alertes.py`.
+
 ### Actu et événements (depuis le 21/10)
 
 - **📰 Sujet chaud** : toutes les 30 min, le bot lit les recherches qui montent sur Google aux
