@@ -1,0 +1,39 @@
+name: Export des données (analyse)
+
+# Copie la mémoire du bot (alertes, suivi 7 jours, signaux) dans une archive téléchargeable pendant
+# 1 jour, pour analyser les stratégies. Lecture seule : ne touche ni à la surveillance ni au cache.
+# Tes positions et ton journal de trades (alertes/positions.json) ne sont JAMAIS exportés.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: alertes
+          key: alertes-etat-export-${{ github.run_id }}
+          restore-keys: alertes-etat-
+
+      - name: Préparer l'export (sans tes positions)
+        run: |
+          mkdir -p export
+          for f in alertes/*.json; do
+            case "$(basename "$f")" in
+              positions.json) echo "ignoré : $f (privé)";;
+              *) cp "$f" export/ && echo "exporté : $f ($(du -h "$f" | cut -f1))";;
+            esac
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: donnees-analyse
+          path: export/
+          retention-days: 1
