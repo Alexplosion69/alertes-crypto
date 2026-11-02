@@ -256,6 +256,7 @@ def relayer_analyses(st, envoyer):
     except requests.RequestException:
         return
     if r.status_code != 200:
+        print(f"analyste Claude : verdicts illisibles ({r.status_code})")
         return
     vus = st.setdefault("analyses_vues", [])
     zones = {str(a.get("zid")): a for a in st.get("alerts", []) if a.get("type") == "attente" and a.get("zid")}
@@ -289,8 +290,9 @@ def relayer_analyses(st, envoyer):
                 if mc_n:
                     ecart = f" ({(mc_n / mc_a - 1) * 100:+.0f} % depuis)" if mc_a else ""
                     maj += f"\n📍 Maintenant : mcap {_fmt(mc_n)}{ecart} · liquidité {_fmt(liq_n)}"
-        envoyer(f"🧠 <b>Analyste Claude : ${html.escape(str(d.get('symbole', '?')))} → {html.escape(verdict)}</b>\n"
-                + html.escape(str(d.get("texte", "")))[:3000] + maj)
+        ok = envoyer(f"🧠 <b>Analyste Claude : ${html.escape(str(d.get('symbole', '?')))} → {html.escape(verdict)}</b>\n"
+                     + html.escape(str(d.get("texte", "")))[:3000] + maj)
+        print(f"analyste Claude : verdict {d.get('symbole')} {verdict} relayé ({'ok' if ok else 'échec Telegram'})")
     st["analyses_vues"] = vus[-300:]
 
 

@@ -440,6 +440,11 @@ def rejouer(alertes, sv):
         net = v.GT_NETWORKS.get(a.get("chain"))
         e = sv["tokens"].get(a["key"]) or {}
         pool = e.get("pair") or (a.get("url") or "").rstrip("/").split("/")[-1]
+        if a.get("chain") == "solana" and pool and pool == pool.lower() and a.get("address"):
+            # les liens DexScreener mettent l'adresse de paire en minuscules : on la redemande
+            paires = v.get_json(f"{v.DS}/tokens/v1/solana/{a['address']}") or []
+            cible = [p for p in paires if (p.get("pairAddress") or "").lower() == pool]
+            pool = (cible or sorted(paires, key=lambda p: -((p.get("liquidity") or {}).get("usd") or 0)) or [{}])[0].get("pairAddress") or pool
         if not net or not pool:
             a["rejeu"] = {"vide": True}
             continue
