@@ -1,0 +1,32 @@
+name: Analyste Claude (test)
+
+# Déclenche une fois la tâche « Analyste crypto » sur la dernière zone d'entrée de la liste d'attente.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: [self-hosted, hetzner]
+    timeout-minutes: 5
+    steps:
+      - run: |
+          cd /home/bot/app
+          set -a; . /home/bot/bot.env; set +a
+          .venv/bin/python - <<'PY'
+          import json, os, requests
+          st = json.load(open("alertes/etat.json"))
+          z = [a for a in st.get("alerts", []) if a.get("type") == "attente"]
+          a = z[-1]
+          texte = (f"zid={a.get('zid') or int(a['ts'])}\nchaine={a['chain']}\nadresse={a['address']}\n"
+                   f"symbole={a['symbol']}\nlien={a.get('url')}\nmcap={a.get('mcap')}\n"
+                   f"repli depuis le sommet : {a.get('repli_pct')} %\n(test lancé à la main)")
+          r = requests.post(os.environ["ROUTINE_FIRE_URL"], timeout=20, json={"text": texte},
+                            headers={"Authorization": "Bearer " + os.environ["ROUTINE_TOKEN"],
+                                     "anthropic-version": "2023-06-01",
+                                     "anthropic-beta": "experimental-cc-routine-2026-04-01",
+                                     "content-type": "application/json"})
+          print("token testé :", a["symbol"], "· réponse :", r.status_code, r.text[:200] if r.status_code != 200 else "session créée")
+          PY
