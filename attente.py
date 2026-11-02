@@ -224,6 +224,57 @@ def smart_pendant_repli(t, e, smart_set, depuis):
     return {"smart_achats": len(sa), "smart_ventes": len(sv_), "acheteurs": len(ach), "vendeurs": len(ven)}
 
 
+def analyste_claude(t, f, zid, lignes):
+    """Option 4 : déclenche la tâche planifiée Claude « analyste » (si configurée) pour une analyse
+    complète du token, qui répond sur Telegram. Compris dans l'abonnement Claude d'Alex."""
+    url, jeton = os.getenv("ROUTINE_FIRE_URL", "").strip(), os.getenv("ROUTINE_TOKEN", "").strip()
+    if not url or not jeton:
+        return
+    texte = (f"zid={zid}\nchaine={t['chain']}\nadresse={t['address']}\nsymbole={t['symbol']}\n"
+             f"lien={t.get('dexscreener')}\n" + "\n".join(re.sub(r"<[^>]+>", "", x) for x in lignes if x))
+    try:
+        requests.post(url, timeout=20, json={"text": texte[:6000]},
+                      headers={"Authorization": f"Bearer {jeton}", "anthropic-version": "2023-06-01",
+                               "anthropic-beta": "experimental-cc-routine-2026-04-01",
+                               "content-type": "application/json"})
+    except requests.RequestException:
+        pass
+
+
+VERDICTS_URL = ("https://raw.githubusercontent.com/Alexplosion69/alertes-crypto/claude/analyses/"
+                "analyses/verdicts.jsonl")
+
+
+def relayer_analyses(st, envoyer):
+    """L'analyste Claude écrit ses verdicts dans analyses/verdicts.jsonl (branche claude/analyses) ;
+    le bot les relaie sur Telegram et les range avec la zone d'entrée, pour le bilan."""
+    if not os.getenv("ROUTINE_FIRE_URL"):
+        return
+    try:
+        r = requests.get(VERDICTS_URL, params={"t": int(time.time() // 120)}, timeout=15)
+    except requests.RequestException:
+        return
+    if r.status_code != 200:
+        return
+    vus = st.setdefault("analyses_vues", [])
+    zones = {str(a.get("zid")): a for a in st.get("alerts", []) if a.get("type") == "attente" and a.get("zid")}
+    for ligne in r.text.splitlines():
+        try:
+            d = json.loads(ligne)
+        except ValueError:
+            continue
+        zid = str(d.get("zid") or "")
+        if not zid or zid in vus:
+            continue
+        vus.append(zid)
+        verdict = str(d.get("verdict", "?"))[:20].upper()
+        if zid in zones:
+            zones[zid]["verdict_complet"] = verdict
+        envoyer(f"🧠 <b>Analyste Claude : ${html.escape(str(d.get('symbole', '?')))} → {html.escape(verdict)}</b>\n"
+                + html.escape(str(d.get("texte", "")))[:3000])
+    st["analyses_vues"] = vus[-300:]
+
+
 def _envoyer_zone(texte, zid, adresse):
     """Envoie la zone d'entrée avec deux boutons : « j'ai acheté » / « pas pris » (ton tri, option 2)."""
     token, chat = os.getenv("TELEGRAM_BOT_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
@@ -342,6 +393,7 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset())
         ]
         zid = int(now)
         envoye = bool(EN_DIRECT and _envoyer_zone("\n".join(x for x in lignes if x), zid, t["address"]))
+        analyste_claude(t, f, zid, lignes)
         _noter(st, t, "attente", envoye=envoye, hausse=round(f["hausse"], 2), repli_pct=round(f["repli"] * 100),
                videur=("oui" if ok_c else "non configuré"), raison_claude=raison_c[:120], zid=zid,
                porteurs0=p0, porteurs=p1, **conf)

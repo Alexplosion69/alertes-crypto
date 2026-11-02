@@ -43,6 +43,8 @@ jobs:
           SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SOLANATRACKER_API_KEY: ${{ secrets.SOLANATRACKER_API_KEY }}
+          ROUTINE_FIRE_URL: ${{ secrets.ROUTINE_FIRE_URL }}
+          ROUTINE_TOKEN: ${{ secrets.ROUTINE_TOKEN }}
         run: |
           set -e
           APP=/home/bot/app
@@ -62,6 +64,8 @@ jobs:
             echo "SOLANA_RPC_URL=$SOLANA_RPC_URL"
             echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
             echo "SOLANATRACKER_API_KEY=$SOLANATRACKER_API_KEY"
+            echo "ROUTINE_FIRE_URL=$ROUTINE_FIRE_URL"
+            echo "ROUTINE_TOKEN=$ROUTINE_TOKEN"
             echo "PYTHONUNBUFFERED=1"
           } > /home/bot/bot.env
           sudo tee /etc/systemd/system/bot-crypto.service > /dev/null <<'UNIT'

@@ -605,6 +605,10 @@ def cycle(st, sent_this_hour, sv, pf):
         meteora_sim.tick(st, sv, frais if r else None, attente.forme, telegram)
     except Exception as e:
         print(f"[warn] meteora simulé : {type(e).__name__}")
+    try:                                   # verdicts de l'analyste Claude (option 4)
+        attente.relayer_analyses(st, telegram)
+    except Exception as e:
+        print(f"[warn] analyste Claude : {type(e).__name__}")
     try:                                   # faux ordres Jupiter : le garde-fou en répétition
         faux_ordres.tick(st)
     except Exception as e:
@@ -961,6 +965,11 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     s_non = [a for a in att if "smart_achats" in a and not a.get("smart_achats")]
     if s_oui or s_non:
         lignes += detail(s_oui, "smart wallets acheteurs pendant le repli") + detail(s_non, "aucun smart wallet acheteur")
+    # analyste Claude complet (option 4) : ses verdicts séparent-ils les bonnes zones des mauvaises ?
+    v_go = [a for a in att if a.get("verdict_complet") == "GO"]
+    v_non = [a for a in att if a.get("verdict_complet") in ("NON", "PRUDENCE")]
+    if v_go or v_non:
+        lignes += detail(v_go, "analyste Claude : GO") + detail(v_non, "analyste Claude : prudence ou non")
     # ton tri (boutons « j'ai acheté / pas pris ») : en privé, seulement sur Telegram
     choix = (positions.charger().get("choix_zones") or {})
     pris = [a for a in att if choix.get(str(a.get("zid"))) == "achete"]
