@@ -17,3 +17,5 @@ jobs:
           systemctl show bot-crypto -p ActiveEnterTimestamp -p NRestarts
           free -m | head -2
           sudo journalctl -u bot-crypto --since "-20min" --no-pager | grep -vE "^\s*$" | tail -n 40 | cut -c1-220
+          echo "--- lignes utiles des 12 dernières heures ---"
+          sudo journalctl -u bot-crypto --since "-12h" --no-pager | grep -iE "meteora|liste d'attente|warn|error|Traceback" | tail -n 40 | cut -c1-220
