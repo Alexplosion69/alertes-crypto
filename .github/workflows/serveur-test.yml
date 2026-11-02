@@ -17,3 +17,7 @@ jobs:
           echo "python : $(python3 --version)"; free -m | head -3; df -h / | tail -1
           echo "utilisateur : $(whoami)"; sudo -n true && echo "sudo : ok"
           curl -s -o /dev/null -w "telegram : %{http_code}\n" https://api.telegram.org
+      - name: Devis Jupiter sans clé
+        run: |
+          curl -s "https://api.jup.ag/swap/v2/order?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000000" | jq -c '{outAmount, router, feeBps, errorCode, errorMessage, error}'
+          curl -s -o /dev/null -w "meteora : %{http_code}\n" "https://dlmm.datapi.meteora.ag/pools?page_size=1"

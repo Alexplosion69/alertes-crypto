@@ -34,7 +34,7 @@ ZONE_HAUT, ZONE_BAS = 0.15, 0.35   # …des cases de −15 % à −35 % sous le 
 STOP = 0.50                   # 50 % sous le sommet : on vend le token
 REMONTE_H = 1                 # au-dessus de la zone pendant 1 h : on ferme
 DUREE_MAX_H = 72
-POOL_TVL_MIN, POOL_VOL_MIN = 30_000, 100_000
+POOL_TVL_MIN, POOL_VOL_MIN = 10_000, 30_000   # 02/11 : 30 k$ / 100 k$ ne laissait passer aucun token
 PART_METEORA = 0.10           # part des frais gardée par Meteora sur les pools de memecoins
 MAX_OUVERTES = 6
 
@@ -87,6 +87,8 @@ def ouvrir(st, t, f, envoyer):
     p = trouver_pool(t["address"])
     m["pools"][t["key"]] = [time.time(), p["address"] if p else None]
     if not p:
+        m["sans_pool"] = m.get("sans_pool", 0) + 1
+        print(f"meteora simulé : pas de pool Meteora assez actif pour {t['symbol']}")
         return
     i = _infos(p)
     prix = _prix_token(p.get("current_price") or 0, i["x_token"])
@@ -195,6 +197,8 @@ def fermer(st, k, pos, raison, prix, envoyer):
 def tick(st, sv, frais, forme, envoyer):
     """frais : dernier relevé (ou None hors relevé) ; forme : attente.forme."""
     m = st.setdefault("meteora", {"ouvertes": {}, "fermees": [], "pools": {}})
+    if m.get("seuils") != [POOL_TVL_MIN, POOL_VOL_MIN]:    # seuils changés : on revoit tous les pools
+        m["pools"], m["seuils"] = {}, [POOL_TVL_MIN, POOL_VOL_MIN]
     for k, pos in list(m["ouvertes"].items()):
         try:
             suivre(st, k, pos, envoyer)
@@ -225,7 +229,9 @@ def bilan(st):
     f = [x for x in (st.get("meteora") or {}).get("fermees", []) if x.get("touche")]
     if not f:
         n = len((st.get("meteora") or {}).get("ouvertes", {}))
-        return [f"🧪 Meteora simulé : aucune position fermée pour l'instant ({n} ouverte(s))"]
+        sp = (st.get("meteora") or {}).get("sans_pool", 0)
+        return [f"🧪 Meteora simulé : aucune position fermée pour l'instant ({n} ouverte(s) ; "
+                f"{sp} token(s) en repli sans pool Meteora assez actif)"]
     lp = sum(x["lp"] for x in f) / len(f)
     ech = sum(x["echelonne"] for x in f) / len(f)
     fr = sum(x["frais"] for x in f) / len(f)

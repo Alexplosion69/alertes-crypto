@@ -29,6 +29,7 @@ import requests
 
 import attente
 import meteora_sim
+import faux_ordres
 import baleines
 import devs
 import evenements
@@ -604,6 +605,10 @@ def cycle(st, sent_this_hour, sv, pf):
         meteora_sim.tick(st, sv, frais if r else None, attente.forme, telegram)
     except Exception as e:
         print(f"[warn] meteora simulé : {type(e).__name__}")
+    try:                                   # faux ordres Jupiter : le garde-fou en répétition
+        faux_ordres.tick(st)
+    except Exception as e:
+        print(f"[warn] faux ordres : {type(e).__name__}")
 
     def envoyer(texte):
         if sent_this_hour[0] >= MAX_ALERTES_HEURE:
@@ -964,11 +969,12 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         lignes.append("🙋 <b>Ton tri</b> (zones prises contre laissées, même simulation) :")
         lignes += detail(pris, "prises") + detail(laisses, "laissées")
     lignes += strat(tem, "🎲 Témoin : un token au hasard, mêmes filtres")
-    lignes += meteora_sim.bilan(st)
     ma, mt = moy(att), moy(tem)
     if ma is not None and mt is not None:
         lignes.append(f"   → écart liste d'attente − témoin : <b>{(ma - mt) * 100:+.0f} points</b> "
                       f"({len(att)} contre {len(tem)} signaux)")
+    lignes += meteora_sim.bilan(st)
+    lignes += faux_ordres.bilan(st)
     jetes = [a for a in alertes if a.get("type") == "attente_jete"]
     if jetes:
         par = {}
