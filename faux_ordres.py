@@ -86,6 +86,8 @@ def fermer(fo, k, pos, raison, prix_affiche_sortie):
                           "reaction_min": round((pos["ts"] - pos["ts_alerte"]) / 60, 1)})
     fo["fermees"] = [x for x in fo["fermees"] if time.time() - x["fin"] < 60 * 86400]
     del fo["ouvertes"][k]
+    print(f"faux ordres : {pos['symbol']} fermé ({raison}) : réel {res * 100:+.1f} %"
+          + (f", affiché {papier * 100:+.1f} %" if papier is not None else ""))
 
 
 def tick(st):
@@ -100,6 +102,9 @@ def tick(st):
             for a in nouvelles:
                 if len(fo["ouvertes"]) < MAX_OUVERTES:
                     ouvrir(fo, a, sol_usd)
+    if nouvelles:
+        print(f"faux ordres : {len(fo['ouvertes'])} en cours, {len(fo['fermees'])} fermés, "
+              f"{fo.get('refus', 0)} devis refusés")
     if not fo["ouvertes"]:
         return
     prix = _prix_actuels({p["address"] for p in fo["ouvertes"].values()})

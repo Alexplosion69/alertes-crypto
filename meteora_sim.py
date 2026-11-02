@@ -204,6 +204,19 @@ def tick(st, sv, frais, forme, envoyer):
             suivre(st, k, pos, envoyer)
         except Exception as e:                  # une API qui répond mal ne doit rien casser
             print(f"[warn] meteora {pos.get('symbol')} : {type(e).__name__}")
+    # 02/11 : les zones d'entrée de la liste d'attente déclenchent aussi une position (avant, il
+    # fallait attraper le token entre −10 % et −15 % pendant un relevé de 30 min : quasi jamais)
+    vu = m.get("vu_zones", time.time() - 3600)
+    for a in [a for a in st.get("alerts", []) if a.get("type") == "attente" and a.get("ts", 0) > vu]:
+        m["vu_zones"] = max(m.get("vu_zones", 0), a["ts"])
+        if a.get("chain") != "solana" or a["key"] in m["ouvertes"] or len(m["ouvertes"]) >= MAX_OUVERTES:
+            continue
+        try:
+            ouvrir(st, {"key": a["key"], "address": a["address"], "symbol": a["symbol"]},
+                   {"repli": (a.get("repli_pct") or 15) / 100}, envoyer)
+        except Exception as e:
+            print(f"[warn] meteora ouverture {a.get('symbol')} : {type(e).__name__}")
+    m.setdefault("vu_zones", vu)
     if not frais:
         return
     now = time.time()
