@@ -242,6 +242,18 @@ def analyste_claude(t, f, zid, lignes):
 
 
 # API GitHub plutôt que raw.githubusercontent (mis en cache 5 min) : le verdict arrive plus vite
+def _heure_paris(hhmm):
+    """« 07:50 » (UTC, écrit par l'analyste) → « 8 h 50 » à l'heure de Paris."""
+    try:
+        from zoneinfo import ZoneInfo
+        h, m = (int(x) for x in str(hhmm).split(":")[:2])
+        utc = datetime.now(ZoneInfo("UTC")).replace(hour=h, minute=m, second=0, microsecond=0)
+        p = utc.astimezone(ZoneInfo("Europe/Paris"))
+        return f"{p.hour} h {p.minute:02d}"
+    except Exception:
+        return f"{hhmm} (UTC)"
+
+
 VERDICTS_URL = "https://api.github.com/repos/Alexplosion69/alertes-crypto/contents/analyses/verdicts.jsonl"
 
 
@@ -259,6 +271,7 @@ def relayer_analyses(st, envoyer):
         print(f"analyste Claude : verdicts illisibles ({r.status_code})")
         return
     vus = st.setdefault("analyses_vues", [])
+    nouveaux = 0
     zones = {str(a.get("zid")): a for a in st.get("alerts", []) if a.get("type") == "attente" and a.get("zid")}
     for ligne in r.text.splitlines():
         try:
@@ -285,7 +298,7 @@ def relayer_analyses(st, envoyer):
                 best = max(paires, key=lambda x: (x.get("liquidity") or {}).get("usd") or 0)
                 mc_n = best.get("marketCap") or best.get("fdv") or 0
                 liq_n = (best.get("liquidity") or {}).get("usd") or 0
-                maj = (f"\n⏱️ Lu par l'analyste à {html.escape(str(d.get('heure', '?')))} UTC : mcap {_fmt(mc_a)}"
+                maj = (f"\n⏱️ Lu par l'analyste à {_heure_paris(d.get('heure'))} : mcap {_fmt(mc_a)}"
                        if mc_a else "")
                 if mc_n:
                     ecart = f" ({(mc_n / mc_a - 1) * 100:+.0f} % depuis)" if mc_a else ""
@@ -293,7 +306,9 @@ def relayer_analyses(st, envoyer):
         ok = envoyer(f"🧠 <b>Analyste Claude : ${html.escape(str(d.get('symbole', '?')))} → {html.escape(verdict)}</b>\n"
                      + html.escape(str(d.get("texte", "")))[:3000] + maj)
         print(f"analyste Claude : verdict {d.get('symbole')} {verdict} relayé ({'ok' if ok else 'échec Telegram'})")
+        nouveaux += 1
     st["analyses_vues"] = vus[-300:]
+    return nouveaux
 
 
 def _envoyer_zone(texte, zid, adresse):

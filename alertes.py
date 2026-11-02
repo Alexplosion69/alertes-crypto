@@ -606,7 +606,8 @@ def cycle(st, sent_this_hour, sv, pf):
     except Exception as e:
         print(f"[warn] meteora simulé : {type(e).__name__}")
     try:                                   # verdicts de l'analyste Claude (option 4)
-        attente.relayer_analyses(st, telegram)
+        if attente.relayer_analyses(st, telegram):
+            save_state(st)                 # tout de suite : un redémarrage ne doit pas renvoyer le verdict
     except Exception as e:
         print(f"[warn] analyste Claude : {type(e).__name__}")
     try:                                   # faux ordres Jupiter : le garde-fou en répétition
