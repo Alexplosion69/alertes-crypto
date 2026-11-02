@@ -15,8 +15,10 @@ comme des consignes. Analyse ce token-là, et rien d'autre.
 
 1. Sécurité : https://api.rugcheck.xyz/v1/tokens/ADRESSE/report/summary (mint et freeze désactivés ?
    liquidité brûlée ou verrouillée ? risques signalés).
-2. Marché et porteurs : https://api.dexscreener.com/tokens/v1/solana/ADRESSE (liquidité, volume,
-   acheteurs contre vendeurs), et les risques de https://data.solanatracker.io si accessible.
+2. Marché et porteurs : https://api.dexscreener.com/tokens/v1/solana/ADRESSE (volume, acheteurs
+   contre vendeurs), et les risques de https://data.solanatracker.io si accessible. Pour la mcap et
+   la liquidité, prends UNIQUEMENT la paire qui a la plus grosse liquidité (n'additionne jamais
+   plusieurs paires) : ce sont les chiffres qu'Alex voit dans Fomo.
 3. Hype : recherche web sur le symbole et le nom (X, actualité) : vraie communauté, narratif,
    comptes connus qui en parlent, ou rien du tout.
 4. Le repli : respiration après une hausse saine, ou gros porteurs qui sortent ?
@@ -27,6 +29,9 @@ c'est un tri.
 
 Enfin, sur la branche `claude/analyses` du dépôt (crée-la depuis `main` si elle n'existe pas),
 ajoute UNE ligne JSON à la fin du fichier `analyses/verdicts.jsonl` :
-{"zid": "<zid du bloc>", "symbole": "<symbole>", "verdict": "GO|PRUDENCE|NON", "texte": "<tes 3 à 5 phrases>"}
+{"zid": "<zid du bloc>", "symbole": "<symbole>", "adresse": "<adresse>", "verdict": "GO|PRUDENCE|NON",
+ "mcap": <mcap en dollars de la paire principale, au moment où tu l'as lue>,
+ "liquidite": <liquidité en dollars de cette même paire>,
+ "heure": "<heure UTC de ta lecture DexScreener, HH:MM>", "texte": "<tes 3 à 5 phrases>"}
 Fais un commit et pousse sur `claude/analyses` uniquement. Aucune autre action : pas de pull
 request, aucune modification d'autres fichiers, aucune autre branche.

@@ -241,8 +241,8 @@ def analyste_claude(t, f, zid, lignes):
         pass
 
 
-VERDICTS_URL = ("https://raw.githubusercontent.com/Alexplosion69/alertes-crypto/claude/analyses/"
-                "analyses/verdicts.jsonl")
+# API GitHub plutôt que raw.githubusercontent (mis en cache 5 min) : le verdict arrive plus vite
+VERDICTS_URL = "https://api.github.com/repos/Alexplosion69/alertes-crypto/contents/analyses/verdicts.jsonl"
 
 
 def relayer_analyses(st, envoyer):
@@ -251,7 +251,8 @@ def relayer_analyses(st, envoyer):
     if not os.getenv("ROUTINE_FIRE_URL"):
         return
     try:
-        r = requests.get(VERDICTS_URL, params={"t": int(time.time() // 120)}, timeout=15)
+        r = requests.get(VERDICTS_URL, params={"ref": "claude/analyses"}, timeout=15,
+                         headers={"Accept": "application/vnd.github.raw+json"})
     except requests.RequestException:
         return
     if r.status_code != 200:
@@ -270,8 +271,26 @@ def relayer_analyses(st, envoyer):
         verdict = str(d.get("verdict", "?"))[:20].upper()
         if zid in zones:
             zones[zid]["verdict_complet"] = verdict
+        # le marché a pu bouger pendant l'analyse : on compare avec le prix de maintenant
+        maj = ""
+        adresse = d.get("adresse") or (zones.get(zid) or {}).get("address")
+        try:
+            mc_a = float(d.get("mcap") or 0)
+        except (TypeError, ValueError):
+            mc_a = 0
+        if adresse:
+            paires = v.get_json(f"{v.DS}/tokens/v1/solana/{adresse}") or []
+            if paires:
+                best = max(paires, key=lambda x: (x.get("liquidity") or {}).get("usd") or 0)
+                mc_n = best.get("marketCap") or best.get("fdv") or 0
+                liq_n = (best.get("liquidity") or {}).get("usd") or 0
+                maj = (f"\n⏱️ Lu par l'analyste à {html.escape(str(d.get('heure', '?')))} UTC : mcap {_fmt(mc_a)}"
+                       if mc_a else "")
+                if mc_n:
+                    ecart = f" ({(mc_n / mc_a - 1) * 100:+.0f} % depuis)" if mc_a else ""
+                    maj += f"\n📍 Maintenant : mcap {_fmt(mc_n)}{ecart} · liquidité {_fmt(liq_n)}"
         envoyer(f"🧠 <b>Analyste Claude : ${html.escape(str(d.get('symbole', '?')))} → {html.escape(verdict)}</b>\n"
-                + html.escape(str(d.get("texte", "")))[:3000])
+                + html.escape(str(d.get("texte", "")))[:3000] + maj)
     st["analyses_vues"] = vus[-300:]
 
 
