@@ -1096,6 +1096,12 @@ def main(mode):
             except Exception as e:
                 print(f"[warn] positions : {type(e).__name__}")
             positions.sauver(pos)
+            if time.time() - st.get("_fo_rapide", 0) >= 60:   # garde-fou en répétition : prix vérifiés chaque minute
+                st["_fo_rapide"] = time.time()
+                try:
+                    faux_ordres.tick(st)
+                except Exception as e:
+                    print(f"[warn] faux ordres : {type(e).__name__}")
             if mode != "loop" or time.time() - t0 >= CYCLE_MIN * 60 - 15:
                 break
             time.sleep(15)
