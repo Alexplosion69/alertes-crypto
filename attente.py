@@ -177,9 +177,18 @@ def videur_claude(t, f, sec_txt, st_txt):
         r = requests.post("https://api.anthropic.com/v1/messages", timeout=40,
                           headers={"x-api-key": cle, "anthropic-version": "2023-06-01",
                                    "content-type": "application/json"},
-                          json={"model": CLAUDE_MODELE, "max_tokens": 300, "system": SYSTEME,
+                          json={"model": CLAUDE_MODELE, "max_tokens": 2000, "system": SYSTEME,
+                                "thinking": {"type": "disabled"},
                                 "messages": [{"role": "user", "content": json.dumps(donnees, ensure_ascii=False)}]})
-        texte = "".join(b.get("text", "") for b in r.json().get("content") or [])
+        if r.status_code == 400:       # modèle qui n'accepte pas ce réglage : sans, avec de la marge
+            r = requests.post("https://api.anthropic.com/v1/messages", timeout=60,
+                              headers={"x-api-key": cle, "anthropic-version": "2023-06-01",
+                                       "content-type": "application/json"},
+                              json={"model": CLAUDE_MODELE, "max_tokens": 4000, "system": SYSTEME,
+                                    "messages": [{"role": "user", "content": json.dumps(donnees, ensure_ascii=False)}]})
+        # 04/11 : Haiku 5.5 réfléchit d'abord (« thinking ») ; avec 300 jetons il ne restait rien pour
+        # la réponse, et toutes les zones passaient avec « réponse illisible »
+        texte = "".join(b.get("text", "") for b in r.json().get("content") or [] if b.get("type") == "text")
         m = re.search(r"\{.*\}", texte, re.S)
         rep = json.loads(m.group(0)) if m else {}
     except (requests.RequestException, ValueError) as e:
