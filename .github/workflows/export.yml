@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Exporter (sans tes positions)
-        shell: python
+        shell: python3 {0}
         run: |
           import base64, gzip, json
           def lire(nom):
