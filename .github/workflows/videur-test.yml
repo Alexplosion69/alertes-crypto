@@ -1,0 +1,34 @@
+name: Videur Claude (test)
+
+# Appelle le videur Claude Haiku sur un faux token et montre sa réponse brute (diagnostic).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: [self-hosted, hetzner]
+    timeout-minutes: 5
+    steps:
+      - run: |
+          cd /home/bot/app
+          set -a; . /home/bot/bot.env; set +a
+          .venv/bin/python - <<'PY'
+          import json, os, requests, attente
+          donnees = {"symbol": "TEST", "name": "Test token", "chain": "solana", "mcap": 500000, "liq": 80000,
+                     "age_h": 40, "vol_24h": 900000, "chg_1h": -3, "buys_1h": 120, "sells_1h": 90,
+                     "hausse_avant_repli": 1.8, "repli_depuis_sommet_pct": 22, "liquidite_vs_12h": 0.95,
+                     "securite": "RugCheck : aucun risque", "concentration": "snipers 2 %, achats groupés 4 %, initiés 0 %"}
+          r = requests.post("https://api.anthropic.com/v1/messages", timeout=40,
+                            headers={"x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01",
+                                     "content-type": "application/json"},
+                            json={"model": attente.CLAUDE_MODELE, "max_tokens": 300, "system": attente.SYSTEME,
+                                  "messages": [{"role": "user", "content": json.dumps(donnees, ensure_ascii=False)}]})
+          print("statut", r.status_code)
+          d = r.json()
+          print("stop_reason", d.get("stop_reason"), "· types de blocs", [b.get("type") for b in d.get("content") or []])
+          print("brut :", repr("".join(b.get("text", "") for b in d.get("content") or []))[:600])
+          print("erreur :", d.get("error"))
+          PY
