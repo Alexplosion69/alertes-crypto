@@ -25,7 +25,9 @@ import outils as v
 import portefeuilles
 
 DOSSIER = Path(os.getenv("DONNEES_DIR", "/home/bot/donnees")) / "smart"
-RPC = os.getenv("SOLANA_RPC_URL", "").strip()
+_BRUT = os.getenv("SOLANA_RPC_URL", "").strip()
+# le secret peut être l'adresse complète ou la clé Helius seule (comme pour baleines.py)
+RPC = _BRUT if _BRUT.startswith("http") else (f"https://mainnet.helius-rpc.com/?api-key={_BRUT}" if _BRUT else "")
 WS = RPC.replace("https://", "wss://", 1).replace("http://", "ws://", 1)
 LECTURES_MAX_JOUR = 12_000
 LISTE_TOUTES_MIN = 30
