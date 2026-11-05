@@ -107,11 +107,31 @@ jobs:
           WantedBy=multi-user.target
           UNIT
           sudo sed -i 's/^          //' /etc/systemd/system/bot-enregistreur.service
+          # 05/11 (option 20) : écoute en direct des smart wallets (WebSockets Helius, offre gratuite)
+          sudo tee /etc/systemd/system/bot-smart.service > /dev/null <<'UNIT'
+          [Unit]
+          Description=Smart wallets en direct (achats et ventes des wallets « smart »)
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          User=bot
+          WorkingDirectory=/home/bot/app
+          EnvironmentFile=/home/bot/bot.env
+          ExecStart=/home/bot/app/.venv/bin/python smart_direct.py
+          Restart=always
+          RestartSec=30
+          Nice=10
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+          sudo sed -i 's/^          //' /etc/systemd/system/bot-smart.service
           sudo systemctl daemon-reload
-          sudo systemctl enable -q bot-crypto bot-enregistreur
-          sudo systemctl restart bot-crypto bot-enregistreur
+          sudo systemctl enable -q bot-crypto bot-enregistreur bot-smart
+          sudo systemctl restart bot-crypto bot-enregistreur bot-smart
           sleep 60
-          systemctl is-active bot-crypto bot-enregistreur
-          sudo journalctl -u bot-enregistreur --since "-2min" --no-pager | tail -n 5 | cut -c1-220
+          systemctl is-active bot-crypto bot-enregistreur bot-smart
+          sudo journalctl -u bot-enregistreur -u bot-smart --since "-2min" --no-pager | tail -n 8 | cut -c1-220
           # quelques lignes du journal du bot (jamais tes positions : le bot ne les écrit pas)
           sudo journalctl -u bot-crypto --since "-1min" --no-pager | tail -n 15 | cut -c1-220

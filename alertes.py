@@ -103,6 +103,7 @@ BILAN_TYPES_ETUDE = BILAN_TYPES + ("temoin_apparie",)   # comptés et rejoués, 
 # 05/11/2026 : début du compteur officiel (videur Claude enfin fonctionnel, témoins appariés, étiquettes)
 OFFICIEL_DEPUIS = 1793876400       # 05/11/2026 12 h (Paris)
 REVUE_TS = 1795388340              # 22/11/2026 23 h 59 (Paris)
+REVUE2_TS = 1796943540             # 10/12/2026 23 h 59 (Paris) : 2e point pour la liste d'attente (option 24)
 SMART_STRICT_DEPUIS = 1793552400   # 01/11 17 h UTC : nouvelle définition des smart wallets
 BILAN_HEURE_UTC = 7           # bilan quotidien vers 9 h (heure d'été) / 8 h (heure d'hiver)
 # noms trop génériques (clonés en permanence, ce n'est pas un narratif)
@@ -837,9 +838,10 @@ def bilan_decision(st, detail, moy):
     jours = max((now - OFFICIEL_DEPUIS) / 86400, 0.5)
     rythme = len(zones) / jours
     prevu = len(zones) + rythme * max((REVUE_TS - now) / 86400, 0)
-    lignes = [f"🔬 <b>Pour la revue du 22/11</b> (compté depuis le 05/11) : {len(zones)} zone(s) d'entrée, "
-              f"{len(tem)} témoins, {len(app)} témoins appariés · rythme {rythme:.1f} zone/jour → "
-              f"environ {prevu:.0f} zones le 22/11"]
+    prevu2 = len(zones) + rythme * max((REVUE2_TS - now) / 86400, 0)
+    lignes = [f"🔬 <b>Pour les revues du 22/11 et du 10/12</b> (compté depuis le 05/11) : {len(zones)} zone(s) "
+              f"d'entrée, {len(tem)} témoins, {len(app)} témoins appariés · rythme {rythme:.1f} zone/jour → "
+              f"environ {prevu:.0f} zones le 22/11, {prevu2:.0f} le 10/12 (il en faut au moins 30)"]
     # zone contre ses témoins tirés au même moment : l'effet du marché du jour s'annule
     par_zid = {}
     for a in app:
@@ -857,6 +859,16 @@ def bilan_decision(st, detail, moy):
     if oui or non:
         lignes.append("   🤖 Videur Claude à l'aveugle sur les témoins :")
         lignes += detail(oui, "il aurait dit oui") + detail(non, "il aurait dit non")
+    a_go = [a for a in tem if a.get("verdict_complet") == "GO"]
+    a_non = [a for a in tem if a.get("verdict_complet") in ("NON", "PRUDENCE")]
+    if a_go or a_non:
+        lignes.append("   🧠 Analyste Claude à l'aveugle sur les témoins :")
+        lignes += detail(a_go, "GO") + detail(a_non, "prudence ou non")
+    s_oui = [a for a in lab if a.get("smart_6h")]
+    s_non = [a for a in lab if "smart_6h" in a and not a.get("smart_6h")]
+    if s_oui or s_non:
+        lignes.append("   🐋 Smart wallets (écoute en direct) sur les témoins, 6 h avant le tirage :")
+        lignes += detail(s_oui, "au moins un smart wallet acheteur") + detail(s_non, "aucun")
     c_ok = [a for a in lab if a.get("aveugle_concentration") == "ok"]
     c_non = [a for a in lab if a.get("aveugle_concentration") == "non"]
     if c_ok or c_non:

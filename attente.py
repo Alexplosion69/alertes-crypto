@@ -25,6 +25,7 @@ import random
 import re
 import time
 from datetime import datetime
+from pathlib import Path
 
 import requests
 
@@ -60,6 +61,9 @@ SMART_TRADES_PAGE = True      # lit les derniers échanges du pool (1 appel Geck
 # --- témoin
 TEMOIN_TOUTES_MIN = 60
 TEMOINS_APPARIES = 3          # 05/11 : pour chaque zone, 3 tokens tirés au hasard AU MÊME MOMENT
+ANALYSTE_TEMOINS_HEURES = (8, 15)   # 05/11 (option 22) : l'analyste Claude voit aussi 2 témoins par jour,
+                                    # à partir de 8 h et de 15 h UTC, sans le savoir ; ses verdicts sur eux
+                                    # ne sont pas envoyés sur Telegram, seulement comptés dans le bilan
 ETIQUETTES_AVEUGLES = True    # 05/11 : le témoin passe aussi devant les videurs, sans effet, pour les noter
 MAX_ZONES_PAR_RELEVE = 3      # vérifications de sécurité par relevé (API gratuites)
 
@@ -202,6 +206,33 @@ def videur_claude(t, f, sec_txt, st_txt):
     return verdict == "oui", raison
 
 
+# ---------------------------------------------------------------- smart wallets en direct (option 20)
+SMART_DIRECT = Path(os.getenv("DONNEES_DIR", "/home/bot/donnees")) / "smart"
+
+
+def smart_direct(mint, depuis):
+    """Wallets « smart » qui ont acheté / vendu ce token depuis `depuis`, d'après l'écoute en direct
+    (smart_direct.py). Renvoie None si l'écoute ne tourne pas."""
+    if not SMART_DIRECT.exists():
+        return None
+    ach, ven = set(), set()
+    for f in sorted(SMART_DIRECT.glob("20*.jsonl"))[-3:]:
+        try:
+            lignes = f.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for ligne in lignes:
+            if mint not in ligne:
+                continue
+            try:
+                e = json.loads(ligne)
+            except ValueError:
+                continue
+            if e.get("mint") == mint and e.get("t", 0) >= depuis:
+                (ach if e.get("sens") == "achat" else ven).add(e.get("w"))
+    return {"smart_achats": len(ach), "smart_ventes": len(ven), "smart_source": "direct"}
+
+
 # ---------------------------------------------------------------- étiquettes (05/11/2026)
 def infos_gt(t):
     """Fiche GeckoTerminal du token (gratuite) : porteurs, part des 10 plus gros, part du dev, score.
@@ -243,7 +274,30 @@ def etiqueter_a_l_aveugle(t, e, now, sec_txt):
         out["aveugle_videur"] = "oui" if ok_c else "non"
         out["aveugle_raison"] = raison_c[:120]
     out.update(infos_gt(t))
+    if t["chain"] == "solana":
+        d = smart_direct(t["address"], now - 6 * 3600)
+        if d is not None:
+            out["smart_6h"] = d["smart_achats"]
     return out
+
+
+def analyste_sur_temoin(st, t, e, now, sec_txt):
+    """Option 22 : envoie le témoin qu'on vient de tirer à l'analyste Claude, présenté comme une zone
+    (à l'aveugle), 2 fois par jour au plus. Sert à savoir si ses GO font mieux que ses NON."""
+    jour, heure = time.strftime("%Y-%m-%d", time.gmtime(now)), time.gmtime(now).tm_hour
+    deja = (st.get("analyste_temoins") or {}).get(jour, 0)
+    if deja >= len(ANALYSTE_TEMOINS_HEURES) or heure < ANALYSTE_TEMOINS_HEURES[deja]:
+        return
+    f = forme(e, t, now) if e else None
+    zid = int(now)
+    st["alerts"][-1]["zid"] = zid
+    lignes = [f"📋 <b>Zone d'entrée : ${html.escape(str(t['symbol']))}</b> ({t['chain']}) — {t['age_h'] / 24:.1f} jours",
+              f"mcap {_fmt(t['mcap'])} · liq {_fmt(t['liq'])} · vol 24 h {_fmt(t['vol_24h'])}",
+              (f"📈 x{f['hausse']:.1f} avant le sommet, repli de {f['repli'] * 100:.0f} %" if f else ""),
+              f"👥 {t['buys_1h']} achats / {t['sells_1h']} ventes sur 1 h",
+              f"🛡️ {sec_txt}"]
+    analyste_claude(t, f, zid, lignes)
+    st["analyste_temoins"] = {jour: deja + 1}
 
 
 def temoins_apparies(st, frais, t_zone, zid, securite, ajouter_suivi, sv, now):
@@ -352,7 +406,8 @@ def relayer_analyses(st, envoyer):
         return
     vus = st.setdefault("analyses_vues", [])
     nouveaux = 0
-    zones = {str(a.get("zid")): a for a in st.get("alerts", []) if a.get("type") == "attente" and a.get("zid")}
+    zones = {str(a.get("zid")): a for a in st.get("alerts", [])
+             if a.get("type") in ("attente", "temoin") and a.get("zid")}
     for ligne in r.text.splitlines():
         try:
             d = json.loads(ligne)
@@ -365,6 +420,10 @@ def relayer_analyses(st, envoyer):
         verdict = str(d.get("verdict", "?"))[:20].upper()
         if zid in zones:
             zones[zid]["verdict_complet"] = verdict
+            if zones[zid].get("type") == "temoin":   # contrôle à l'aveugle : compté, pas envoyé
+                print(f"analyste Claude : verdict témoin {d.get('symbole')} {verdict} noté")
+                nouveaux += 1
+                continue
         # le marché a pu bouger pendant l'analyse : on compare avec le prix de maintenant
         maj = ""
         adresse = d.get("adresse") or (zones.get(zid) or {}).get("address")
@@ -485,6 +544,9 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset())
         # confirmations (observation) : porteurs depuis l'entrée en liste, smart wallets pendant le repli
         p0, p1 = w.get("porteurs0"), porteurs(t)
         conf = smart_pendant_repli(t, e, smart_set, f["haut_ts"]) if SMART_TRADES_PAGE else {}
+        direct = smart_direct(t["address"], f["haut_ts"]) if t["chain"] == "solana" else None
+        if direct is not None:                 # l'écoute en direct voit tout le repli, pas 5 minutes
+            conf.update(direct)
         conf_txt = []
         if p0 and p1:
             conf_txt.append(f"porteurs {p0} → {p1} ({(p1 / p0 - 1) * 100:+.0f} % depuis l'entrée en liste)")
@@ -534,6 +596,10 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset())
                     print(f"[warn] étiquettes du témoin : {type(ex).__name__}")
                     lab = {}
                 _noter(st, t, "temoin", **lab)
+                try:
+                    analyste_sur_temoin(st, t, sv["tokens"].get(t["key"]), now, sec_txt)
+                except Exception as ex:
+                    print(f"[warn] analyste sur témoin : {type(ex).__name__}")
                 ajouter_suivi(t)
                 st["temoin_ts"] = now
                 break

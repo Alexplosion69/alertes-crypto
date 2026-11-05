@@ -36,7 +36,12 @@ REMONTE_H = 1                 # au-dessus de la zone pendant 1 h : on ferme
 DUREE_MAX_H = 72
 POOL_TVL_MIN, POOL_VOL_MIN = 10_000, 30_000   # 02/11 : 30 k$ / 100 k$ ne laissait passer aucun token
 PART_METEORA = 0.10           # part des frais gardée par Meteora sur les pools de memecoins
-MAX_OUVERTES = 6
+MAX_OUVERTES = 10
+# 05/11 (option 21) : les tokens de la liste d'attente n'ont presque jamais de pool Meteora ; on teste
+# donc aussi l'idée directement sur les pools Meteora de memecoins les plus actifs
+POOLS_TOUTES_MIN = 30
+POOLS_MCAP = (100_000, 50_000_000)
+POOLS_VOL_MIN, POOLS_TVL_MIN = 100_000, 30_000
 
 
 def _get(path):
@@ -79,7 +84,7 @@ def _cases(haut_zone, bas_zone, bin_step):
     return [haut_zone / pas ** i for i in range(n)]
 
 
-def ouvrir(st, t, f, envoyer):
+def ouvrir(st, t, f, envoyer, source="liste d'attente"):
     m = st.setdefault("meteora", {"ouvertes": {}, "fermees": [], "pools": {}})
     cache = m["pools"].get(t["key"])
     if cache and time.time() - cache[0] < 12 * 3600 and not cache[1]:
@@ -104,9 +109,9 @@ def ouvrir(st, t, f, envoyer):
         "x_token": i["x_token"], "taux": i["taux"], "taux_base": i["taux_base"], "tvl": i["tvl"],
         "sol_usd": i["sol_usd"], "sommet": sommet, "cases": cases, "plus_bas": prix, "frais_sol": 0.0,
         "dernier_ts": int(time.time()) - 300, "au_dessus_depuis": None, "prix": prix,
-        "touche": False}
+        "touche": False, "source": source}
     if EN_DIRECT:
-        envoyer(f"🧪 <b>Meteora simulé : position ouverte sur ${html.escape(str(t['symbol']))}</b>\n"
+        envoyer(f"🧪 <b>Meteora simulé : position ouverte sur ${html.escape(str(t['symbol']))}</b> ({source})\n"
                 f"Pool {html.escape(str(p.get('name')))} · taux {i['taux_base']} % (payé en moyenne "
                 f"{i['taux'] * 100:.2f} %) · liquidité {i['tvl'] / 1e3:.0f} k$\n"
                 f"100 € de SOL fictifs en {len(cases)} cases, de −{ZONE_HAUT * 100:.0f} % à "
@@ -181,7 +186,8 @@ def fermer(st, k, pos, raison, prix, envoyer):
     ech = ech_sol + ech_token * vente - 1
     r = {"symbol": pos["symbol"], "ts": pos["ts"], "fin": time.time(), "raison": raison,
          "lp": round(lp, 4), "echelonne": round(ech, 4), "frais": round(pos["frais_sol"], 4),
-         "touche": pos["touche"], "pool": pos["nom_pool"], "taux": pos["taux"]}
+         "touche": pos["touche"], "pool": pos["nom_pool"], "taux": pos["taux"],
+         "source": pos.get("source", "liste d'attente")}
     m["fermees"].append(r)
     v.archiver("meteora", [x for x in m["fermees"] if time.time() - x["fin"] >= 60 * 86400])
     m["fermees"] = [x for x in m["fermees"] if time.time() - x["fin"] < 60 * 86400]
@@ -193,6 +199,57 @@ def fermer(st, k, pos, raison, prix, envoyer):
                    f"Ordres échelonnés (mêmes achats, token gardé) : {ech * 100:+.1f} %"
                    if pos["touche"] else "Le prix n'est jamais descendu dans la zone : rien acheté, 0 €.")
                 + "\n<i>Simulation, aucun argent engagé.</i>")
+
+
+def candidats_pools(st, envoyer):
+    """Option 21 : parmi les pools Meteora de memecoins les plus actifs (token-SOL), ceux dont le token
+    a monté d'au moins 30 % sur 48 h puis replie de 10 à 35 % : on y « place » 100 € fictifs."""
+    m = st["meteora"]
+    now = time.time()
+    if now - m.get("pools_vus_ts", 0) < POOLS_TOUTES_MIN * 60:
+        return
+    m["pools_vus_ts"] = now
+    deja = {x["symbol"] for x in m["fermees"] if now - x["fin"] < 72 * 3600}
+    d = _get("/pools?page_size=50&sort_by=volume_24h:desc&filter_by=is_blacklisted=false") or {}
+    vus = 0
+    for p in d.get("data") or []:
+        if len(m["ouvertes"]) >= MAX_OUVERTES:
+            break
+        x, y = p.get("token_x") or {}, p.get("token_y") or {}
+        if SOL not in (x.get("address"), y.get("address")):
+            continue
+        tok = y if x.get("address") == SOL else x
+        mint, sym = tok.get("address"), tok.get("symbol") or "?"
+        if not mint or sym in deja or f"solana:{mint}" in m["ouvertes"]:
+            continue
+        if not (POOLS_MCAP[0] <= (tok.get("market_cap") or 0) <= POOLS_MCAP[1]):
+            continue
+        if (p.get("tvl") or 0) < POOLS_TVL_MIN or ((p.get("volume") or {}).get("24h") or 0) < POOLS_VOL_MIN:
+            continue
+        vus += 1
+        c = _get(f"/pools/{p['address']}/ohlcv?timeframe=1h&start_time={int(now - 48 * 3600)}") or {}
+        b = sorted(c.get("data") or [], key=lambda z: z.get("timestamp") or 0)
+        x_token = x.get("address") != SOL
+        try:
+            hauts = [_prix_token(float(z["high"]), x_token) for z in b]
+            bas = [_prix_token(float(z["low"]), x_token) for z in b]
+            if not x_token:                      # prix inversé : le haut et le bas s'échangent
+                hauts, bas = bas, hauts
+            prix = _prix_token(float(b[-1]["close"]), x_token)
+        except (KeyError, TypeError, ValueError, IndexError, ZeroDivisionError):
+            continue
+        if len(b) < 12 or not prix:
+            continue
+        i = max(range(len(hauts)), key=lambda j: hauts[j])
+        sommet, creux = hauts[i], min(bas[:i + 1]) if i else bas[0]
+        hausse, repli = (sommet / creux if creux else 0), 1 - prix / sommet
+        if hausse >= 1.30 and DECLENCHE <= repli < ZONE_BAS:
+            try:
+                ouvrir(st, {"key": f"solana:{mint}", "address": mint, "symbol": sym}, {"repli": repli},
+                       envoyer, source="pool Meteora")
+            except Exception as e:
+                print(f"[warn] meteora ouverture {sym} : {type(e).__name__}")
+    print(f"meteora simulé : {vus} pool(s) Meteora de memecoins examiné(s)")
 
 
 def tick(st, sv, frais, forme, envoyer):
@@ -218,6 +275,10 @@ def tick(st, sv, frais, forme, envoyer):
         except Exception as e:
             print(f"[warn] meteora ouverture {a.get('symbol')} : {type(e).__name__}")
     m.setdefault("vu_zones", vu)
+    try:
+        candidats_pools(st, envoyer)
+    except Exception as e:
+        print(f"[warn] meteora pools : {type(e).__name__}")
     if not frais:
         return
     now = time.time()
@@ -246,9 +307,16 @@ def bilan(st):
         sp = (st.get("meteora") or {}).get("sans_pool", 0)
         return [f"🧪 Meteora simulé : aucune position fermée pour l'instant ({n} ouverte(s) ; "
                 f"{sp} token(s) en repli sans pool Meteora assez actif)"]
-    lp = sum(x["lp"] for x in f) / len(f)
-    ech = sum(x["echelonne"] for x in f) / len(f)
-    fr = sum(x["frais"] for x in f) / len(f)
-    g = sum(x["lp"] > 0 for x in f) / len(f)
-    return [f"🧪 <b>Meteora simulé</b> : {len(f)} positions · liquidité <b>{lp * 100:+.1f} %</b> en moyenne "
-            f"(dont frais {fr * 100:+.1f} %, gagnantes {g * 100:.0f} %) · ordres échelonnés {ech * 100:+.1f} %"]
+    lignes = []
+    for source in ("liste d'attente", "pool Meteora"):
+        g_ = [x for x in f if x.get("source", "liste d'attente") == source]
+        if not g_:
+            continue
+        lp = sum(x["lp"] for x in g_) / len(g_)
+        ech = sum(x["echelonne"] for x in g_) / len(g_)
+        fr = sum(x["frais"] for x in g_) / len(g_)
+        g = sum(x["lp"] > 0 for x in g_) / len(g_)
+        lignes.append(f"🧪 <b>Meteora simulé ({source})</b> : {len(g_)} positions · liquidité <b>{lp * 100:+.1f} %</b> "
+                      f"en moyenne (dont frais {fr * 100:+.1f} %, gagnantes {g * 100:.0f} %) · ordres échelonnés "
+                      f"{ech * 100:+.1f} %")
+    return lignes
