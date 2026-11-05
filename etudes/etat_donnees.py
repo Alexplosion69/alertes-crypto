@@ -35,3 +35,13 @@ if DON.exists():
         print(f"Enregistreur {f.name} : {n} photos, {len(toks)} tokens, {f.stat().st_size / 1e6:.1f} Mo, "
               f"de {time.strftime('%H:%M', time.gmtime(t0))} à {time.strftime('%H:%M', time.gmtime(t1))} UTC")
     print("État :", (DON / "etat.json").read_text() if (DON / "etat.json").exists() else "—")
+SM = DON / "smart"
+if SM.exists():
+    print("Smart en direct :", (SM / "smart_etat.json").read_text() if (SM / "smart_etat.json").exists() else "—")
+    for f in sorted(SM.glob("20*.jsonl"))[-2:]:
+        evs = [json.loads(l) for l in f.read_text().splitlines() if l.strip()]
+        print(f"  {f.name} : {len(evs)} échanges, {len({e['w'] for e in evs})} wallets actifs, "
+              f"{len({e['mint'] for e in evs})} tokens, achats {sum(e['sens'] == 'achat' for e in evs)}")
+ms = st.get("meteora") or {}
+print("Meteora simulé :", {k: (len(v) if isinstance(v, (list, dict)) else v) for k, v in ms.items()})
+print("Faux ordres :", {k: (len(v) if isinstance(v, (list, dict)) else v) for k, v in (st.get("faux_ordres") or {}).items()})
