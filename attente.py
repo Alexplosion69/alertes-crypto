@@ -59,6 +59,8 @@ CLAUDE_MODELE = os.getenv("CLAUDE_MODEL_VIDEUR", "claude-haiku-5-5")
 SMART_TRADES_PAGE = True      # lit les derniers échanges du pool (1 appel GeckoTerminal par zone)
 # --- témoin
 TEMOIN_TOUTES_MIN = 60
+TEMOINS_APPARIES = 3          # 05/11 : pour chaque zone, 3 tokens tirés au hasard AU MÊME MOMENT
+ETIQUETTES_AVEUGLES = True    # 05/11 : le témoin passe aussi devant les videurs, sans effet, pour les noter
 MAX_ZONES_PAR_RELEVE = 3      # vérifications de sécurité par relevé (API gratuites)
 
 
@@ -198,6 +200,75 @@ def videur_claude(t, f, sec_txt, st_txt):
     if verdict not in ("oui", "non"):
         return None, "réponse de Claude illisible"
     return verdict == "oui", raison
+
+
+# ---------------------------------------------------------------- étiquettes (05/11/2026)
+def infos_gt(t):
+    """Fiche GeckoTerminal du token (gratuite) : porteurs, part des 10 plus gros, part du dev, score.
+    Les porteurs y sont mis à jour quelques fois par jour seulement : c'est une étiquette, pas une série."""
+    net = v.GT_NETWORKS.get(t["chain"])
+    if not net:
+        return {}
+    a = ((v.gt_get(f"/networks/{net}/tokens/{t['address']}/info") or {}).get("data") or {}).get("attributes") or {}
+    h = a.get("holders") or {}
+    dist = h.get("distribution_percentage") or {}
+    out = {}
+    try:
+        if h.get("count"):
+            out["gt_porteurs"] = int(h["count"])
+        if dist.get("top_10") is not None:
+            out["gt_top10"] = round(float(dist["top_10"]), 1)
+        if a.get("developer_holding_percentage") is not None:
+            out["gt_dev"] = round(float(a["developer_holding_percentage"]), 2)
+        if a.get("gt_score") is not None:
+            out["gt_score"] = round(float(a["gt_score"]), 1)
+    except (TypeError, ValueError):
+        pass
+    return out
+
+
+def etiqueter_a_l_aveugle(t, e, now, sec_txt):
+    """Ce que les videurs AURAIENT dit de ce token, sans rien en faire : sert à mesurer s'ils trient
+    vraiment (sur ~24 témoins par jour, bien plus que les quelques zones d'entrée)."""
+    if not ETIQUETTES_AVEUGLES:
+        return {}
+    out = {}
+    ok_st, st_txt = solana_tracker(t)
+    if st_txt:
+        out["aveugle_concentration"] = "ok" if ok_st else "non"
+    f = forme(e, t, now) if e else None
+    f = f or {"hausse": 1.0, "repli": 0.0, "liq_12h": t["liq"]}
+    ok_c, raison_c = videur_claude(t, f, sec_txt, st_txt)
+    if ok_c is not None:
+        out["aveugle_videur"] = "oui" if ok_c else "non"
+        out["aveugle_raison"] = raison_c[:120]
+    out.update(infos_gt(t))
+    return out
+
+
+def temoins_apparies(st, frais, t_zone, zid, securite, ajouter_suivi, sv, now):
+    """Pour une zone d'entrée, 3 tokens tirés au hasard parmi ceux qui passent les mêmes filtres, au même
+    moment, de taille proche si possible : on compare la zone à ce qui s'est passé AU MÊME MOMENT, ce qui
+    retire l'effet du marché du jour (bien plus précis que le témoin horaire)."""
+    pool = [t for t in frais if t["key"] != t_zone["key"] and eligible(t) and evitement(t) is None]
+    proches = [t for t in pool if t_zone["mcap"] / 2 <= t["mcap"] <= t_zone["mcap"] * 2]
+    random.shuffle(proches)
+    random.shuffle(pool)
+    choisis, vus = [], set()
+    for t in proches + pool:
+        if len(choisis) >= TEMOINS_APPARIES or len(vus) >= TEMOINS_APPARIES * 3:
+            break
+        if t["key"] in vus:
+            continue
+        vus.add(t["key"])
+        ok, sec_txt = securite(t)
+        if not ok:
+            continue
+        lab = etiqueter_a_l_aveugle(t, sv["tokens"].get(t["key"]), now, sec_txt)
+        _noter(st, t, "temoin_apparie", zid=zid, **lab)
+        ajouter_suivi(t)
+        choisis.append(t)
+    return len(choisis)
 
 
 # ---------------------------------------------------------------- confirmations du repli
@@ -441,8 +512,12 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset())
         analyste_claude(t, f, zid, lignes)
         _noter(st, t, "attente", envoye=envoye, hausse=round(f["hausse"], 2), repli_pct=round(f["repli"] * 100),
                videur=("oui" if ok_c else "non configuré"), raison_claude=raison_c[:120], zid=zid,
-               porteurs0=p0, porteurs=p1, **conf)
+               porteurs0=p0, porteurs=p1, **conf, **infos_gt(t))
         ajouter_suivi(t)
+        try:
+            temoins_apparies(st, frais, t, zid, securite, ajouter_suivi, sv, now)
+        except Exception as ex:                # un témoin raté ne doit pas casser la liste d'attente
+            print(f"[warn] témoins appariés : {type(ex).__name__}")
         print(f"liste d'attente : zone d'entrée {t['symbol']} (repli {f['repli'] * 100:.0f} %)")
 
     # témoin : un token tiré au hasard parmi ceux qui passent les mêmes filtres, une fois par heure
@@ -451,9 +526,14 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset())
                 and t["key"] not in {a["key"] for a in st["alerts"][-200:] if a.get("type") == "temoin"}]
         random.shuffle(pool)
         for t in pool[:3]:
-            ok, _ = securite(t)
+            ok, sec_txt = securite(t)
             if ok:
-                _noter(st, t, "temoin")
+                try:
+                    lab = etiqueter_a_l_aveugle(t, sv["tokens"].get(t["key"]), now, sec_txt)
+                except Exception as ex:
+                    print(f"[warn] étiquettes du témoin : {type(ex).__name__}")
+                    lab = {}
+                _noter(st, t, "temoin", **lab)
                 ajouter_suivi(t)
                 st["temoin_ts"] = now
                 break

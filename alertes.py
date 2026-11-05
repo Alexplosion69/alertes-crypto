@@ -99,6 +99,10 @@ SURV_ACHETEURS_24H_MIN = 300  # acheteurs uniques sur 24 h
 SURV_REALERTE_H = 48
 
 BILAN_TYPES = ("attente", "temoin", "attente_jete", "momentum")
+BILAN_TYPES_ETUDE = BILAN_TYPES + ("temoin_apparie",)   # comptés et rejoués, mais pas listés un par un
+# 05/11/2026 : début du compteur officiel (videur Claude enfin fonctionnel, témoins appariés, étiquettes)
+OFFICIEL_DEPUIS = 1793876400       # 05/11/2026 12 h (Paris)
+REVUE_TS = 1795388340              # 22/11/2026 23 h 59 (Paris)
 SMART_STRICT_DEPUIS = 1793552400   # 01/11 17 h UTC : nouvelle définition des smart wallets
 BILAN_HEURE_UTC = 7           # bilan quotidien vers 9 h (heure d'été) / 8 h (heure d'hiver)
 # noms trop génériques (clonés en permanence, ce n'est pas un narratif)
@@ -150,9 +154,10 @@ def save_state(st):
                           if now - ts < NARR_REALERTE_H * 3600}
     st["surv_alerted"] = {k: ts for k, ts in st.get("surv_alerted", {}).items()
                           if now - ts < SURV_REALERTE_H * 3600}
+    v.archiver("alertes", [a for a in st["alerts"] if now - a["ts"] >= 30 * 86400])
     st["alerts"] = [a for a in st["alerts"] if now - a["ts"] < 30 * 86400]
     STATE_FILE.parent.mkdir(exist_ok=True)
-    STATE_FILE.write_text(json.dumps(st))
+    v.ecrire_json(STATE_FILE, st)
 
 
 # ---------------------------------------------------------------- Candidats
@@ -628,7 +633,7 @@ def cycle(st, sent_this_hour, sv, pf):
         except Exception as e:             # une source indisponible ne doit pas bloquer le reste
             print(f"[warn] baleines : {type(e).__name__}")
     try:                                   # bougies de 5 min pour les alertes de plus de 24 h
-        suivi.rejouer([a for a in st["alerts"] if a.get("type") in BILAN_TYPES] + pf["signaux"], sv)
+        suivi.rejouer([a for a in st["alerts"] if a.get("type") in BILAN_TYPES_ETUDE] + pf["signaux"], sv)
     except Exception as e:
         print(f"[warn] rejeu : {e!r}")
 
@@ -822,13 +827,57 @@ def diagnostic_momentum(st, now):
     return lignes
 
 
+def bilan_decision(st, detail, moy):
+    """05/11 : ce qui servira à la revue du 22/11, compté depuis le début officiel (au-delà des 7 jours)."""
+    now = time.time()
+    off = [a for a in st["alerts"] if a["ts"] >= OFFICIEL_DEPUIS]
+    zones = [a for a in off if a.get("type") == "attente"]
+    tem = [a for a in off if a.get("type") == "temoin"]
+    app = [a for a in off if a.get("type") == "temoin_apparie"]
+    jours = max((now - OFFICIEL_DEPUIS) / 86400, 0.5)
+    rythme = len(zones) / jours
+    prevu = len(zones) + rythme * max((REVUE_TS - now) / 86400, 0)
+    lignes = [f"🔬 <b>Pour la revue du 22/11</b> (compté depuis le 05/11) : {len(zones)} zone(s) d'entrée, "
+              f"{len(tem)} témoins, {len(app)} témoins appariés · rythme {rythme:.1f} zone/jour → "
+              f"environ {prevu:.0f} zones le 22/11"]
+    # zone contre ses témoins tirés au même moment : l'effet du marché du jour s'annule
+    par_zid = {}
+    for a in app:
+        par_zid.setdefault(str(a.get("zid")), []).append(suivi.resultat_sim_net(a))
+    ecarts = [suivi.resultat_sim_net(z) - sum(par_zid[str(z.get("zid"))]) / len(par_zid[str(z.get("zid"))])
+              for z in zones if par_zid.get(str(z.get("zid")))]
+    if ecarts:
+        lignes.append(f"   · zone contre ses témoins du même moment : {len(ecarts)} paire(s) · écart moyen "
+                      f"<b>{sum(ecarts) / len(ecarts) * 100:+.0f} points</b> · médian "
+                      f"{statistics.median(ecarts) * 100:+.0f} · zone devant {sum(e > 0 for e in ecarts)}/{len(ecarts)}")
+    # les videurs à l'aveugle : trient-ils vraiment ? (sur les témoins, qui ne sont pas filtrés par eux)
+    lab = tem + app
+    oui = [a for a in lab if a.get("aveugle_videur") == "oui"]
+    non = [a for a in lab if a.get("aveugle_videur") == "non"]
+    if oui or non:
+        lignes.append("   🤖 Videur Claude à l'aveugle sur les témoins :")
+        lignes += detail(oui, "il aurait dit oui") + detail(non, "il aurait dit non")
+    c_ok = [a for a in lab if a.get("aveugle_concentration") == "ok"]
+    c_non = [a for a in lab if a.get("aveugle_concentration") == "non"]
+    if c_ok or c_non:
+        lignes.append("   🔍 Concentration (snipers, achats groupés, initiés) à l'aveugle sur les témoins :")
+        lignes += detail(c_ok, "acceptable") + detail(c_non, "trop concentré")
+    try:
+        e = json.loads(Path("/home/bot/donnees/etat.json").read_text())
+        lignes.append(f"   💾 Enregistreur : {e.get('jours', 0)} jour(s), {e.get('tokens', 0)} tokens photographiés "
+                      f"toutes les {e.get('pas_min', '?')} min, {e.get('taille_mo', 0):.0f} Mo")
+    except (OSError, ValueError):
+        pass
+    return lignes
+
+
 def bilan_quotidien(st, sv, pf, forcer=False):
     now = time.time()
     jour = time.strftime("%Y-%m-%d", time.gmtime(now))
     # à partir de l'heure prévue, et tant qu'il n'est pas parti aujourd'hui (rattrapage si raté)
     if not forcer and (time.gmtime(now).tm_hour < BILAN_HEURE_UTC or st.get("dernier_bilan") == jour):
         return
-    alertes = [a for a in st["alerts"] if now - a["ts"] < 7 * 86400 and a.get("type", "classique") in BILAN_TYPES]
+    alertes = [a for a in st["alerts"] if now - a["ts"] < 7 * 86400 and a.get("type", "classique") in BILAN_TYPES_ETUDE]
     signaux = [s for s in pf["signaux"] if now - s["ts"] < 7 * 86400]
     # alertes faussées par un ancien relevé aberrant (avant le contrôle prix / capitalisation) :
     # on efface leur historique, il est recalculé avec des relevés cohérents
@@ -983,6 +1032,7 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     if ma is not None and mt is not None:
         lignes.append(f"   → écart liste d'attente − témoin : <b>{(ma - mt) * 100:+.0f} points</b> "
                       f"({len(att)} contre {len(tem)} signaux)")
+    lignes += bilan_decision(st, detail, moy)
     lignes += meteora_sim.bilan(st)
     lignes += faux_ordres.bilan(st)
     jetes = [a for a in alertes if a.get("type") == "attente_jete"]

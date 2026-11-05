@@ -73,10 +73,11 @@ def sauver(pf):
     pf["w"] = {k: x for k, x in pf["w"].items()
                if not (x[1] == 0 and x[0] <= 1 and now - x[2] > 3 * 86400)
                and now - x[2] < 30 * 86400}
+    v.archiver("signaux", [s for s in pf["signaux"] if now - s["ts"] >= 30 * 86400])
     pf["signaux"] = [s for s in pf["signaux"] if now - s["ts"] < 30 * 86400]
     pf["signales"] = {k: ts for k, ts in pf["signales"].items() if now - ts < SIGNAL_REALERTE_H * 3600}
     FICHIER.parent.mkdir(exist_ok=True)
-    FICHIER.write_text(json.dumps(pf, separators=(",", ":")))
+    v.ecrire_json(FICHIER, pf, separators=(",", ":"))
 
 
 def manuels():

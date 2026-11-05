@@ -121,10 +121,11 @@ def charger_liste():
 
 def sauver():
     now = time.time()
+    v.archiver("baleines_achats", [a for a in _etat["achats"] if now - a["ts"] >= ACHATS_JOURS * 86400])
     _etat["achats"] = [a for a in _etat["achats"] if now - a["ts"] < ACHATS_JOURS * 86400]
     _etat["signales"] = {k: ts for k, ts in _etat["signales"].items() if now - ts < 24 * 3600}
     FICHIER.parent.mkdir(exist_ok=True)
-    FICHIER.write_text(json.dumps(_etat, separators=(",", ":")))
+    v.ecrire_json(FICHIER, _etat, separators=(",", ":"))
 
 
 def stats():

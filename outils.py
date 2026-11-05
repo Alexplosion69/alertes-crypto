@@ -3,7 +3,11 @@ Briques communes (copiées du projet de veille) : appels aux API gratuites,
 enrichissement DexScreener, acheteurs uniques GeckoTerminal, wash trading, GoPlus.
 Aucune clé, aucune donnée personnelle ici.
 """
+import gzip
+import json
+import os
 import time
+from pathlib import Path
 
 import requests
 
@@ -250,3 +254,30 @@ def goplus(tokens):
                                  "taxe_vente_pct": tax(r.get("sell_tax")),
                                  "detenteurs": r.get("holder_count"),
                                  "top10_detenteurs_pct": round(top10, 1) if holders else None}
+
+
+# ---------------------------------------------------------------- écriture sûre et archives (05/11/2026)
+def ecrire_json(fichier, obj, **kw):
+    """Écrit le fichier d'un coup : d'abord un fichier temporaire, puis on le met à la place.
+    Si le bot est arrêté pendant l'écriture (mise à jour, redémarrage), l'ancien fichier reste intact
+    au lieu d'être coupé en deux, ce qui effacerait la mémoire du bot."""
+    fichier = Path(fichier)
+    fichier.parent.mkdir(parents=True, exist_ok=True)
+    tmp = fichier.with_name(fichier.name + ".tmp")
+    tmp.write_text(json.dumps(obj, **kw))
+    os.replace(tmp, fichier)
+
+
+ARCHIVES = Path("alertes/archives")
+
+
+def archiver(nom, elements):
+    """Ajoute des éléments (dict) à alertes/archives/<nom>.jsonl.gz au lieu de les supprimer :
+    rien de ce que le bot a observé n'est jamais perdu, même au-delà de ses 7 à 60 jours de mémoire."""
+    elements = list(elements)
+    if not elements:
+        return
+    ARCHIVES.mkdir(parents=True, exist_ok=True)
+    with gzip.open(ARCHIVES / f"{nom}.jsonl.gz", "at", encoding="utf-8") as f:
+        for e in elements:
+            f.write(json.dumps(e, ensure_ascii=False, separators=(",", ":")) + "\n")

@@ -183,6 +183,7 @@ def fermer(st, k, pos, raison, prix, envoyer):
          "lp": round(lp, 4), "echelonne": round(ech, 4), "frais": round(pos["frais_sol"], 4),
          "touche": pos["touche"], "pool": pos["nom_pool"], "taux": pos["taux"]}
     m["fermees"].append(r)
+    v.archiver("meteora", [x for x in m["fermees"] if time.time() - x["fin"] >= 60 * 86400])
     m["fermees"] = [x for x in m["fermees"] if time.time() - x["fin"] < 60 * 86400]
     del m["ouvertes"][k]
     if EN_DIRECT:

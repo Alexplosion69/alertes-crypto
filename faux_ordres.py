@@ -24,7 +24,7 @@ USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 MISE_USD = 5.75               # ≈ 5 €
 TP, STOP, DUREE_H, RUG_LIQ = 1.5, 0.70, 12, 0.70
 FRAIS_RESEAU_SOL = 0.0002     # frais Solana + priorité, par ordre (estimation large)
-TYPES = ("attente", "temoin")
+TYPES = ("attente", "temoin", "temoin_apparie")
 MAX_OUVERTES = 40
 
 
@@ -84,6 +84,7 @@ def fermer(fo, k, pos, raison, prix_affiche_sortie):
                           "raison": raison, "res": round(res, 4),
                           "papier": round(papier, 4) if papier is not None else None,
                           "reaction_min": round((pos["ts"] - pos["ts_alerte"]) / 60, 1)})
+    v.archiver("faux_ordres", [x for x in fo["fermees"] if time.time() - x["fin"] >= 60 * 86400])
     fo["fermees"] = [x for x in fo["fermees"] if time.time() - x["fin"] < 60 * 86400]
     del fo["ouvertes"][k]
     print(f"faux ordres : {pos['symbol']} fermé ({raison}) : réel {res * 100:+.1f} %"
@@ -138,7 +139,7 @@ def bilan(st):
     if not f:
         return [f"🧾 Faux ordres Jupiter (garde-fou en répétition) : aucun fermé pour l'instant ({n_o} en cours)"]
     lignes = []
-    for typ, nom in (("attente", "liste d'attente"), ("temoin", "témoin")):
+    for typ, nom in (("attente", "liste d'attente"), ("temoin", "témoin"), ("temoin_apparie", "témoin apparié")):
         g = [x for x in f if x["type"] == typ]
         if not g:
             continue

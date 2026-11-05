@@ -21,7 +21,7 @@ import outils as v
 
 FICHIER = Path("alertes/suivi.json")
 RELEVE_MIN = 30               # un relevé de prix toutes les 30 min
-SUIVI_MAX = 500               # nombre max de tokens suivis en même temps
+SUIVI_MAX = 1500              # nombre max de tokens suivis (500 sur GitHub ; saturé à 496-500 le 05/11)
 SUIVI_JOURS = 7
 ENTREE_LIQ_MIN = 15_000       # pour entrer dans le suivi
 ENTREE_MCAP_MIN = 60_000
@@ -78,7 +78,7 @@ def sauver(s):
             garde.append(p)
         e["serie"] = garde or e["serie"][-1:]
     FICHIER.parent.mkdir(exist_ok=True)
-    FICHIER.write_text(json.dumps(s, separators=(",", ":")))
+    v.ecrire_json(FICHIER, s, separators=(",", ":"))
 
 
 def _point(t, now):
@@ -128,6 +128,8 @@ def rafraichir(s, listes_suivies):
     morts, fins = [], []
     for k, e in s["tokens"].items():
         if e.get("mort"):
+            if now > e.get("garder_jusqua", 0):       # 05/11 : fin de ses 7 jours → archives (avant : gardé
+                fins.append(k)                        # pour toujours, et il bloquait une place de suivi)
             continue                                  # token mort gardé pour son historique (bilan)
         t = by_key.get(k)
         if t is None:
@@ -277,7 +279,9 @@ def retirer(s, keys):
         if e and e.get("garder_jusqua", 0) > now:
             e["mort"] = True
         else:
-            s["tokens"].pop(k, None)
+            e = s["tokens"].pop(k, None)
+            if e:                               # 05/11 : son historique part aux archives, pas à la poubelle
+                v.archiver("suivi_tokens", [{"key": k, "retire": round(now), **e}])
 
 
 # ---------------------------------------------------------------- survivants

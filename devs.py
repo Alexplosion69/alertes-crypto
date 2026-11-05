@@ -57,7 +57,7 @@ def sauver():
     _mem["par_token"] = {tk: ck for tk, ck in _mem["par_token"].items()
                          if ck in _mem["devs"] and tk in _mem["devs"][ck]}
     FICHIER.parent.mkdir(exist_ok=True)
-    FICHIER.write_text(json.dumps(_mem))
+    v.ecrire_json(FICHIER, _mem)
 
 
 def noter(chain, createur, token_key):

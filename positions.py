@@ -106,7 +106,7 @@ def sauver(p):
     p["choix_zones"] = {z: c for z, c in (p.get("choix_zones") or {}).items()
                         if z.isdigit() and time.time() - int(z) < 60 * 86400}
     FICHIER.parent.mkdir(exist_ok=True)
-    FICHIER.write_text(json.dumps(p, separators=(",", ":")))
+    v.ecrire_json(FICHIER, p, separators=(",", ":"))
 
 
 # ---------------------------------------------------------------- outils

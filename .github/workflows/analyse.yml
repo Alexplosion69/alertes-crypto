@@ -1,0 +1,27 @@
+name: Analyse sur le serveur
+
+# Lance une étude du dossier etudes/ là où sont les données (mémoire du bot + enregistreur), et
+# affiche le résultat dans le journal. Ne lit jamais tes positions.
+on:
+  workflow_dispatch:
+    inputs:
+      etude:
+        description: "Nom du fichier dans etudes/ (sans .py)"
+        default: etat_donnees
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyse:
+    runs-on: [self-hosted, hetzner]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Étude
+        env:
+          ETUDE: ${{ github.event.inputs.etude }}
+        run: |
+          case "$ETUDE" in (*[!a-z0-9_]*|"") echo "nom d'étude invalide"; exit 1;; esac
+          cd /home/bot/app && .venv/bin/python "$GITHUB_WORKSPACE/etudes/$ETUDE.py"

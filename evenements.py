@@ -98,7 +98,7 @@ def sauver():
     _etat["mesures"] = {k: m for k, m in (_etat.get("mesures") or {}).items()
                         if m.get("date", "9999") >= (date.today() - timedelta(days=60)).isoformat()}
     FICHIER.parent.mkdir(exist_ok=True)
-    FICHIER.write_text(json.dumps(_etat, separators=(",", ":")))
+    v.ecrire_json(FICHIER, _etat, separators=(",", ":"))
 
 
 # ---------------------------------------------------------------- outils
