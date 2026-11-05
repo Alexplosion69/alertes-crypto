@@ -10,6 +10,10 @@ zone d'entrée (« smart wallets acheteurs pendant le repli ») et sur les témo
 
 Garde-fous : 12 000 lectures de transactions par jour au maximum (≈ 360 000 crédits par mois sur le
 million gratuit), et un compte des données reçues dans smart_etat.json.
+Robots (05/11) : la première heure d'écoute a montré des wallets qui échangent 10 fois par minute, presque
+tous sur le même token, environ 1 000 $ à chaque fois : des robots de volume, pas des traders. Un wallet
+qui dépasse ROBOT_PAR_HEURE échanges en une heure est classé robot pour 7 jours (robots.json) : on ne lit
+plus ses transactions, il sort de la liste au rechargement suivant, et le bot ignore ses échanges.
 Tourne à part du bot (service « bot-smart ») : s'il plante, le bot continue.
 """
 import asyncio
@@ -30,6 +34,9 @@ _BRUT = os.getenv("SOLANA_RPC_URL", "").strip()
 RPC = _BRUT if _BRUT.startswith("http") else (f"https://mainnet.helius-rpc.com/?api-key={_BRUT}" if _BRUT else "")
 WS = RPC.replace("https://", "wss://", 1).replace("http://", "ws://", 1)
 LECTURES_MAX_JOUR = 12_000
+ROBOT_PAR_HEURE = 30
+ROBOT_JOURS = 7
+ROBOTS = DOSSIER / "robots.json"
 LISTE_TOUTES_MIN = 30
 SOL = "So11111111111111111111111111111111111111112"
 IGNORES = {SOL, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",      # USDC
@@ -37,6 +44,28 @@ IGNORES = {SOL, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",      # USDC
 MOTS_ECHANGE = ("Instruction: Buy", "Instruction: Sell", "Instruction: Swap", "Route", "ray_log", "swap")
 
 compteurs = {"jour": "", "lectures": 0, "octets": 0, "evenements": 0, "plafond_atteint": False}
+rythme = {}                 # wallet -> heures de ses derniers échanges (gardé d'une écoute à l'autre)
+
+
+def reprendre_compteurs():
+    """Après un redémarrage, reprend les compteurs du jour : le plafond vaut pour la journée entière."""
+    try:
+        e = json.loads((DOSSIER / "smart_etat.json").read_text())
+    except (OSError, ValueError):
+        return
+    if e.get("jour") == _jour():
+        for k in ("lectures", "octets", "evenements", "plafond_atteint"):
+            if k in e:
+                compteurs[k] = e[k]
+        compteurs["jour"] = e["jour"]
+
+
+def lire_robots():
+    try:
+        r = json.loads(ROBOTS.read_text())
+    except (OSError, ValueError):
+        return {}
+    return {w: t for w, t in r.items() if time.time() - t < ROBOT_JOURS * 86400}
 
 
 def _jour():
@@ -53,7 +82,7 @@ def _compter(**kw):
 ECOUTE_SOLANA = 100
 
 
-def wallets_smart():
+def wallets_smart(robots=()):
     """Wallets Solana à écouter. 05/11 : la base du bot ne contient AUCUN wallet Solana « smart »
     (le meilleur réussit 13 fois sur 25, quand il en faudrait 2 fois le hasard) ; on écoute donc les
     100 meilleurs wallets Solana observés (au moins 10 tokens, classés par borne basse de Wilson), sans
@@ -64,7 +93,8 @@ def wallets_smart():
         cands = sorted(((portefeuilles._wilson_bas(w, n), k.split(":", 1)[1]) for k, (n, w, _) in pf["w"].items()
                         if k.startswith("solana:") and n >= portefeuilles.SMART_MIN_TOKENS
                         and w >= portefeuilles.SMART_MIN_BONS_COUPS), reverse=True)
-        return sorted(prouves | {a for _, a in cands[:ECOUTE_SOLANA]})
+        cands = [a for _, a in cands if a not in robots]
+        return sorted((prouves - set(robots)) | set(cands[:ECOUTE_SOLANA]))
     except (OSError, ValueError, KeyError) as e:
         print(f"[warn] smart en direct : liste illisible ({type(e).__name__})")
         return []
@@ -112,9 +142,9 @@ def ecrire(ev):
         f.write(json.dumps(ev, separators=(",", ":")) + "\n")
 
 
-def ecrire_etat(n_wallets):
+def ecrire_etat(n_wallets, n_robots=0):
     v.ecrire_json(DOSSIER / "smart_etat.json",
-                  {**compteurs, "wallets": n_wallets, "credits_estimes_jour":
+                  {**compteurs, "wallets": n_wallets, "robots": n_robots, "credits_estimes_jour":
                    round(compteurs["lectures"] + compteurs["octets"] / 1e5 * 2), "maj": round(time.time())})
 
 
@@ -141,7 +171,7 @@ async def traiter(sig, wallet, vus):
         _compter(evenements=1)
 
 
-async def ecouter(wallets):
+async def ecouter(wallets, robots):
     """Une connexion, un abonnement par wallet ; rend la main au bout de LISTE_TOUTES_MIN pour
     recharger la liste (ou en cas de coupure)."""
     vus = {}
@@ -153,6 +183,11 @@ async def ecouter(wallets):
         fin = time.time() + LISTE_TOUTES_MIN * 60
         dernier_etat = 0
         while time.time() < fin:
+            if time.time() - dernier_etat > 300:
+                dernier_etat = time.time()
+                for s in [s for s, t in vus.items() if time.time() - t > 3600]:
+                    del vus[s]
+                ecrire_etat(len(wallets), len(robots))
             try:
                 brut = await asyncio.wait_for(ws.recv(), timeout=60)
             except asyncio.TimeoutError:
@@ -169,14 +204,22 @@ async def ecouter(wallets):
             wallet = abonnement.get(p.get("subscription"))
             if not wallet or val.get("err"):
                 continue
+            if wallet in robots:
+                continue
             logs = " ".join(val.get("logs") or [])
-            if any(mot in logs for mot in MOTS_ECHANGE):
-                asyncio.create_task(traiter(val.get("signature"), wallet, vus))
-            if time.time() - dernier_etat > 300:
-                dernier_etat = time.time()
-                for s in [s for s, t in vus.items() if time.time() - t > 3600]:
-                    del vus[s]
-                ecrire_etat(len(wallets))
+            if not any(mot in logs for mot in MOTS_ECHANGE):
+                continue
+            now = time.time()
+            r = rythme.setdefault(wallet, [])
+            r.append(now)
+            while r and now - r[0] > 3600:
+                r.pop(0)
+            if len(r) > ROBOT_PAR_HEURE:
+                robots[wallet] = now
+                v.ecrire_json(ROBOTS, robots)
+                print(f"smart en direct : {wallet[:6]}… classé robot ({len(r)} échanges en moins d'une heure)")
+                continue
+            asyncio.create_task(traiter(val.get("signature"), wallet, vus))
 
 
 async def principal():
@@ -185,16 +228,18 @@ async def principal():
         while True:
             await asyncio.sleep(3600)
     attente = 5
+    reprendre_compteurs()
     while True:
-        wallets = wallets_smart()
-        print(f"smart en direct : écoute de {len(wallets)} wallets ; aujourd'hui "
+        robots = lire_robots()
+        wallets = wallets_smart(robots)
+        print(f"smart en direct : écoute de {len(wallets)} wallets ({len(robots)} robots écartés) ; aujourd'hui "
               f"{compteurs['lectures']} lectures, {compteurs['evenements']} échanges, "
               f"{compteurs['octets'] / 1e6:.1f} Mo reçus")
         if not wallets:
             await asyncio.sleep(600)
             continue
         try:
-            await ecouter(wallets)
+            await ecouter(wallets, robots)
             attente = 5
         except Exception as e:                  # coupure, refus… : on se reconnecte un peu plus tard
             print(f"[warn] smart en direct : {type(e).__name__} : {str(e)[:150]}")

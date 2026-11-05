@@ -216,6 +216,10 @@ def smart_direct(mint, depuis):
     if not SMART_DIRECT.exists():
         return None
     ach, ven = set(), set()
+    try:                                    # wallets classés robots par smart_direct.py : ignorés
+        robots = set(json.loads((SMART_DIRECT / "robots.json").read_text()))
+    except (OSError, ValueError):
+        robots = set()
     for f in sorted(SMART_DIRECT.glob("20*.jsonl"))[-3:]:
         try:
             lignes = f.read_text(encoding="utf-8").splitlines()
@@ -228,7 +232,7 @@ def smart_direct(mint, depuis):
                 e = json.loads(ligne)
             except ValueError:
                 continue
-            if e.get("mint") == mint and e.get("t", 0) >= depuis:
+            if e.get("mint") == mint and e.get("t", 0) >= depuis and e.get("w") not in robots:
                 (ach if e.get("sens") == "achat" else ven).add(e.get("w"))
     return {"smart_achats": len(ach), "smart_ventes": len(ven), "smart_source": "direct"}
 
