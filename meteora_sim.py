@@ -318,7 +318,7 @@ def bilan(st):
         ech = sum(x["echelonne"] for x in g_) / len(g_)
         fr = sum(x["frais"] for x in g_) / len(g_)
         g = sum(x["lp"] > 0 for x in g_) / len(g_)
-        lignes.append(f"🧪 <b>Meteora fictif ({SOURCES[source]})</b> : {len(g_)} positions · liquidité <b>{lp * 100:+.1f} %</b> "
+        lignes.append(f"🧪 <b>Meteora fictif ({SOURCES[source]})</b> : {len(g_)} position(s) · liquidité <b>{lp * 100:+.1f} %</b> "
                       f"en moyenne (dont frais {fr * 100:+.1f} %, gagnantes {g * 100:.0f} %) · ordres échelonnés "
                       f"{ech * 100:+.1f} %")
     return lignes

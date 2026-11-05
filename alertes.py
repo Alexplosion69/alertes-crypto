@@ -1101,8 +1101,10 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         par = {}
         for a in jetes:
             par.setdefault(a.get("etape", "?"), []).append(a)
-        lignes.append("🗑️ Écartés par un filtre de la stratégie Repli (pour vérifier qu'on a eu raison) : " + " · ".join(
-            f"{etape} {len(l)} ({moy(l) * 100:+.0f} %)" for etape, l in par.items() if moy(l) is not None))
+        noms = {"liste": "abandonnés en surveillance (repli cassé, liquidité qui fond ou 72 h sans repli)",
+                "sécurité": "sécurité", "concentration": "filtre gros porteurs", "Claude": "Filtre Claude"}
+        lignes.append("🗑️ Écartés par la stratégie Repli (pour vérifier qu'on a eu raison) : " + " · ".join(
+            f"{noms.get(etape, etape)} {len(l)} ({moy(l) * 100:+.0f} %)" for etape, l in par.items() if moy(l) is not None))
     lignes.append(f"<i>Règle de vente simulée : moitié vendue à x2, tout coupé à −50 % avant ça, le reste vendu s'il "
                   f"retombe à x1 ou perd 50 % depuis son plus haut. Frais Fomo {suivi.FRAIS_MIN:.2f} € minimum par ordre. "
                   f"« Re-simulation précise » = la même chose rejouée sur les bougies de 5 min.</i>")
@@ -1113,10 +1115,10 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         lignes += ["", "<b>⑤ Tes trades</b>", (j or "📒 Aucun trade fermé cette semaine")
                    + f" · {len(pf_pos['positions'])} position(s) ouverte(s)"]
 
-    recentes = sorted((a for a in alertes + signaux if now - a["ts"] < 86400 and a.get("type", "smart") in BILAN_TYPES + ("smart",)
-                       and a.get("type") != "attente_jete"), key=lambda a: a["ts"])
+    recentes = sorted((a for a in alertes if now - a["ts"] < 86400 and a.get("type") in ("attente", "temoin")),
+                      key=lambda a: a["ts"])
     if recentes:
-        lignes.append("\n<b>Dernières 24 h :</b>")
+        lignes.append("\n<b>Dernières 24 h</b> (signaux Repli 🎯 et tirages au hasard 🎲) :")
         icones = {"attente": "🎯", "temoin": "🎲", "attente_jete": "🗑️", "momentum": "🚀"}
         for a in recentes:
             xn, pk = perf(a)
@@ -1135,8 +1137,9 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     lignes.append(f"👀 {len(st.get('attente', {}))} token(s) en surveillance (ils ont monté, on attend leur repli) · "
                   f"📡 {len(sv['tokens'])} tokens suivis par le bot")
     n_w, n_smart = portefeuilles.stats(pf)
-    lignes.append(f"🐋 Base de wallets : {n_w} observés, {n_smart} « gagnants » prouvés (au moins "
-                  f"{portefeuilles.SMART_MIN_TOKENS} tokens, réussite nettement au-dessus du hasard, "
+    n_sol = sum(1 for k in portefeuilles.smart(pf) if k.startswith("solana:"))
+    lignes.append(f"🐋 Base de wallets : {n_w} observés, {n_smart} « gagnants » prouvés dont {n_sol} sur Solana "
+                  f"(au moins {portefeuilles.SMART_MIN_TOKENS} tokens, réussite nettement au-dessus du hasard, "
                   f"qui est de {portefeuilles.taux_de_base(pf) * 100:.0f} %)")
     lignes += compteurs_donnees()
     if BALEINES_ACTIVES:
