@@ -24,3 +24,8 @@ for e in evs:
     w_par_m[e["mint"]].add(e["w"])
 print("Wallets différents par token :", sorted((len(s) for s in w_par_m.values()), reverse=True))
 print("État :", (SM / "smart_etat.json").read_text())
+R = SM / "robots.json"
+robots = set(json.loads(R.read_text())) if R.exists() else set()
+humains = [e for e in evs if e["w"] not in robots]
+print(f"Robots écartés : {len(robots)} · échanges hors robots : {len(humains)} de {len({e['w'] for e in humains})} wallets, "
+      f"sur {len({e['mint'] for e in humains})} tokens")
