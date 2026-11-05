@@ -45,3 +45,12 @@ if SM.exists():
 ms = st.get("meteora") or {}
 print("Meteora simulé :", {k: (len(v) if isinstance(v, (list, dict)) else v) for k, v in ms.items()})
 print("Faux ordres :", {k: (len(v) if isinstance(v, (list, dict)) else v) for k, v in (st.get("faux_ordres") or {}).items()})
+print("Analyste sur tirages :", st.get("analyste_temoins"), "· tirages avec verdict :",
+      sum(1 for a in lab if a.get("verdict_complet")), "· en attente de verdict :",
+      sum(1 for a in lab if a.get("zid") and a.get("type") == "temoin" and not a.get("verdict_complet")))
+app = [a for a in st["alerts"] if a["ts"] >= OFFICIEL and a.get("type") == "temoin_apparie"]
+print("Jumeaux depuis le 05/11 :", len(app), "· pour", len({a.get("zid") for a in app}), "signal(s)")
+if ms.get("pools_vus_ts"):
+    print("Dernier scan des pools Meteora :", time.strftime("%H:%M UTC", time.gmtime(ms["pools_vus_ts"])))
+R = DON / "smart" / "robots.json"
+print("Robots écartés :", len(json.loads(R.read_text())) if R.exists() else 0)
