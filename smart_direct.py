@@ -8,8 +8,8 @@ WebSockets standard de Helius, compris dans l'offre gratuite (2 crédits par 0,1
 Chaque achat ou vente est écrit dans /home/bot/donnees/smart/AAAA-MM-JJ.jsonl. Le bot s'en sert à chaque
 zone d'entrée (« smart wallets acheteurs pendant le repli ») et sur les témoins ; le tout reste pour l'étude.
 
-Garde-fous : 12 000 lectures de transactions par jour au maximum (≈ 360 000 crédits par mois sur le
-million gratuit), et un compte des données reçues dans smart_etat.json.
+Garde-fous : 12 000 lectures de transactions par jour au maximum, et 25 000 crédits par jour en tout
+(lectures + données reçues), soit 750 000 par mois au plus sur le million gratuit ; compte dans smart_etat.json.
 Robots (05/11) : la première heure d'écoute a montré des wallets qui échangent 10 fois par minute, presque
 tous sur le même token, environ 1 000 $ à chaque fois : des robots de volume, pas des traders. Un wallet
 qui dépasse ROBOT_PAR_HEURE échanges en une heure est classé robot pour 7 jours (robots.json) : on ne lit
@@ -34,6 +34,7 @@ _BRUT = os.getenv("SOLANA_RPC_URL", "").strip()
 RPC = _BRUT if _BRUT.startswith("http") else (f"https://mainnet.helius-rpc.com/?api-key={_BRUT}" if _BRUT else "")
 WS = RPC.replace("https://", "wss://", 1).replace("http://", "ws://", 1)
 LECTURES_MAX_JOUR = 12_000
+CREDITS_MAX_JOUR = 25_000   # 05/11 : 311 Mo reçus en 3 h 30 (robots) -> plafond du jour, lectures et données comprises
 ROBOT_PAR_HEURE = 30
 ROBOT_JOURS = 7
 ROBOTS = DOSSIER / "robots.json"
@@ -142,10 +143,15 @@ def ecrire(ev):
         f.write(json.dumps(ev, separators=(",", ":")) + "\n")
 
 
+def credits_jour():
+    _compter()
+    return round(compteurs["lectures"] + compteurs["octets"] / 1e5 * 2)
+
+
 def ecrire_etat(n_wallets, n_robots=0):
     v.ecrire_json(DOSSIER / "smart_etat.json",
                   {**compteurs, "wallets": n_wallets, "robots": n_robots, "credits_estimes_jour":
-                   round(compteurs["lectures"] + compteurs["octets"] / 1e5 * 2), "maj": round(time.time())})
+                   credits_jour(), "maj": round(time.time())})
 
 
 async def traiter(sig, wallet, vus):
@@ -179,10 +185,14 @@ async def ecouter(wallets, robots):
         for i, w in enumerate(wallets):
             await ws.send(json.dumps({"jsonrpc": "2.0", "id": i + 1, "method": "logsSubscribe",
                                       "params": [{"mentions": [w]}, {"commitment": "confirmed"}]}))
-        abonnement = {}
+        abonnement, sub_de, n_desab = {}, {}, 0
         fin = time.time() + LISTE_TOUTES_MIN * 60
         dernier_etat = 0
         while time.time() < fin:
+            if credits_jour() >= CREDITS_MAX_JOUR:
+                print(f"smart en direct : plafond de {CREDITS_MAX_JOUR} crédits atteint pour aujourd'hui, pause")
+                ecrire_etat(len(wallets), len(robots))
+                return
             if time.time() - dernier_etat > 300:
                 dernier_etat = time.time()
                 for s in [s for s, t in vus.items() if time.time() - t > 3600]:
@@ -194,8 +204,11 @@ async def ecouter(wallets, robots):
                 continue
             _compter(octets=len(brut))
             m = json.loads(brut)
-            if "id" in m and "result" in m and isinstance(m["result"], int):
-                abonnement[m["result"]] = wallets[m["id"] - 1]
+            if "id" in m:                     # réponses : abonnement (numéro) ou désabonnement (true)
+                r_ = m.get("result")
+                if isinstance(r_, int) and not isinstance(r_, bool) and 1 <= m["id"] <= len(wallets):
+                    abonnement[r_] = wallets[m["id"] - 1]
+                    sub_de[wallets[m["id"] - 1]] = r_
                 continue
             if m.get("method") != "logsNotification":
                 continue
@@ -217,6 +230,10 @@ async def ecouter(wallets, robots):
             if len(r) > ROBOT_PAR_HEURE:
                 robots[wallet] = now
                 v.ecrire_json(ROBOTS, robots)
+                if wallet in sub_de:          # on arrête tout de suite de recevoir ses transactions
+                    n_desab += 1
+                    await ws.send(json.dumps({"jsonrpc": "2.0", "id": 100_000 + n_desab,
+                                              "method": "logsUnsubscribe", "params": [sub_de.pop(wallet)]}))
                 print(f"smart en direct : {wallet[:6]}… classé robot ({len(r)} échanges en moins d'une heure)")
                 continue
             asyncio.create_task(traiter(val.get("signature"), wallet, vus))
@@ -237,6 +254,9 @@ async def principal():
               f"{compteurs['octets'] / 1e6:.1f} Mo reçus")
         if not wallets:
             await asyncio.sleep(600)
+            continue
+        if credits_jour() >= CREDITS_MAX_JOUR:          # plafond atteint : reprise après minuit (UTC)
+            await asyncio.sleep(max(60, 86400 - time.time() % 86400 + 60))
             continue
         try:
             await ecouter(wallets, robots)

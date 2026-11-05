@@ -60,6 +60,7 @@ CLAUDE_MODELE = os.getenv("CLAUDE_MODEL_VIDEUR", "claude-haiku-5-5")
 SMART_TRADES_PAGE = True      # lit les derniers échanges du pool (1 appel GeckoTerminal par zone)
 # --- témoin
 TEMOIN_TOUTES_MIN = 60
+TIRAGE_ESSAIS = 6             # candidats essayés à la sécurité avant d'abandonner le tirage de l'heure
 TEMOINS_APPARIES = 3          # 05/11 : pour chaque zone, 3 tokens tirés au hasard AU MÊME MOMENT
 ANALYSTE_TEMOINS_HEURES = (8, 15)   # 05/11 (option 22) : l'analyste Claude voit aussi 2 témoins par jour,
                                     # à partir de 8 h et de 15 h UTC, sans le savoir ; ses verdicts sur eux
@@ -591,8 +592,11 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset())
         pool = [t for t in frais if eligible(t) and evitement(t) is None
                 and t["key"] not in {a["key"] for a in st["alerts"][-200:] if a.get("type") == "temoin"}]
         random.shuffle(pool)
-        for t in pool[:3]:
+        refus = []
+        for t in pool[:TIRAGE_ESSAIS]:
             ok, sec_txt = securite(t)
+            if not ok:
+                refus.append(re.sub(r"<[^>]+>", "", str(sec_txt)).split("\n")[0][:40])
             if ok:
                 try:
                     lab = etiqueter_a_l_aveugle(t, sv["tokens"].get(t["key"]), now, sec_txt)
@@ -607,4 +611,8 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset())
                 ajouter_suivi(t)
                 st["temoin_ts"] = now
                 break
+        n_elig = sum(1 for t in frais if eligible(t))
+        print(f"tirage au hasard : {len(pool)} candidat(s) sur {n_elig} token(s) éligible(s), "
+              + (f"tiré {st['alerts'][-1].get('symbol')}" if st.get("temoin_ts") == now
+                 else f"aucun tiré, refus sécurité : {' | '.join(refus) or 'aucun candidat'}"))
     print(f"liste d'attente : {len(liste)} token(s) en attente, {zones} zone(s) d'entrée vérifiée(s)")
