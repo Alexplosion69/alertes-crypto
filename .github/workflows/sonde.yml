@@ -1,0 +1,18 @@
+name: Sonde serveur (diagnostic)
+
+# Petits contrôles ponctuels sur le serveur (tailles des fichiers, API disponibles). Ne modifie rien.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sonde:
+    runs-on: [self-hosted, hetzner]
+    timeout-minutes: 5
+    steps:
+      - run: |
+          ls -la /home/bot/app/alertes | grep -v positions
+          df -h / | tail -1
+          curl -s "https://api.geckoterminal.com/api/v2/networks/solana/tokens/4kjruqGHDsSqkMdFfCjV7Vb62HPFhtXyWc2t6JpQzDnz/info" | jq -c '.data.attributes | {holders, gt_score, keys: keys}'
