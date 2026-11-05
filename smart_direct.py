@@ -48,11 +48,21 @@ def _compter(**kw):
         compteurs[k] += n
 
 
+ECOUTE_SOLANA = 100
+
+
 def wallets_smart():
-    """Adresses Solana des wallets « smart » d'après la mémoire du bot."""
+    """Wallets Solana à écouter. 05/11 : la base du bot ne contient AUCUN wallet Solana « smart »
+    (le meilleur réussit 13 fois sur 25, quand il en faudrait 2 fois le hasard) ; on écoute donc les
+    100 meilleurs wallets Solana observés (au moins 10 tokens, classés par borne basse de Wilson), sans
+    les tenir pour prouvés : leurs échanges en direct serviront justement à les juger."""
     try:
         pf = json.loads(Path("alertes/portefeuilles.json").read_text())
-        return sorted(k.split(":", 1)[1] for k in portefeuilles.smart(pf) if k.startswith("solana:"))
+        prouves = {k.split(":", 1)[1] for k in portefeuilles.smart(pf) if k.startswith("solana:")}
+        cands = sorted(((portefeuilles._wilson_bas(w, n), k.split(":", 1)[1]) for k, (n, w, _) in pf["w"].items()
+                        if k.startswith("solana:") and n >= portefeuilles.SMART_MIN_TOKENS
+                        and w >= portefeuilles.SMART_MIN_BONS_COUPS), reverse=True)
+        return sorted(prouves | {a for _, a in cands[:ECOUTE_SOLANA]})
     except (OSError, ValueError, KeyError) as e:
         print(f"[warn] smart en direct : liste illisible ({type(e).__name__})")
         return []

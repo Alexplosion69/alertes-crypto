@@ -867,7 +867,7 @@ def bilan_decision(st, detail, moy):
     s_oui = [a for a in lab if a.get("smart_6h")]
     s_non = [a for a in lab if "smart_6h" in a and not a.get("smart_6h")]
     if s_oui or s_non:
-        lignes.append("   🐋 Smart wallets (écoute en direct) sur les témoins, 6 h avant le tirage :")
+        lignes.append("   🐋 Les 100 meilleurs wallets Solana (écoute en direct) sur les témoins, 6 h avant le tirage :")
         lignes += detail(s_oui, "au moins un smart wallet acheteur") + detail(s_non, "aucun")
     c_ok = [a for a in lab if a.get("aveugle_concentration") == "ok"]
     c_non = [a for a in lab if a.get("aveugle_concentration") == "non"]
