@@ -120,7 +120,7 @@ def tick(st):
         pos["haut"] = max(pos["haut"], x)
         raison = None
         if pos["liq0"] and liq < RUG_LIQ * pos["liq0"]:
-            raison = "liquidité qui fond (garde-fou)"
+            raison = "liquidité qui fond"
         elif x <= STOP:
             raison = "stop −30 %"
         elif x >= TP:
@@ -137,9 +137,9 @@ def bilan(st):
     f = fo.get("fermees") or []
     n_o = len(fo.get("ouvertes") or {})
     if not f:
-        return [f"🧾 Faux ordres Jupiter (garde-fou en répétition) : aucun fermé pour l'instant ({n_o} en cours)"]
+        return [f"🧾 Achats fictifs au vrai prix (Jupiter) : aucun fermé pour l'instant ({n_o} en cours)"]
     lignes = []
-    for typ, nom in (("attente", "liste d'attente"), ("temoin", "témoin"), ("temoin_apparie", "témoin apparié")):
+    for typ, nom in (("attente", "signaux Repli"), ("temoin", "tirages au hasard"), ("temoin_apparie", "jumeaux")):
         g = [x for x in f if x["type"] == typ]
         if not g:
             continue
@@ -150,7 +150,7 @@ def bilan(st):
         for x in g:
             raisons[x["raison"]] = raisons.get(x["raison"], 0) + 1
         lignes.append(f"   · {nom} : {len(g)} · résultat réel moyen <b>{m * 100:+.1f} %</b> "
-                      f"(écart avec les prix affichés {ecart:+.1f} points) · "
+                      f"(écart avec les prix affichés {ecart:+.1f} points) · sorties : "
                       + ", ".join(f"{r} {n}" for r, n in raisons.items()))
-    return [f"🧾 <b>Faux ordres Jupiter</b> (vrais devis, aucun argent ; x1,5 / −30 % / 12 h) : "
-            f"{len(f)} fermés, {n_o} en cours"] + lignes
+    return [f"🧾 <b>Achats fictifs au vrai prix</b> (prix réellement proposé par Jupiter, rien acheté ; "
+            f"vente automatique x1,5 / −30 % / 12 h) : {len(f)} fermés, {n_o} en cours"] + lignes

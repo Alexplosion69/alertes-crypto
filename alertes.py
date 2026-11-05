@@ -828,56 +828,82 @@ def diagnostic_momentum(st, now):
     return lignes
 
 
-def bilan_decision(st, detail, moy):
-    """05/11 : ce qui servira à la revue du 22/11, compté depuis le début officiel (au-delà des 7 jours)."""
+def bilan_course(st):
+    """05/11 : la course Repli contre hasard, comptée depuis le début officiel (au-delà des 7 jours),
+    pour la grande revue du 22/11 et le deuxième point du 10/12."""
     now = time.time()
     off = [a for a in st["alerts"] if a["ts"] >= OFFICIEL_DEPUIS]
     zones = [a for a in off if a.get("type") == "attente"]
-    tem = [a for a in off if a.get("type") == "temoin"]
     app = [a for a in off if a.get("type") == "temoin_apparie"]
     jours = max((now - OFFICIEL_DEPUIS) / 86400, 0.5)
     rythme = len(zones) / jours
     prevu = len(zones) + rythme * max((REVUE_TS - now) / 86400, 0)
     prevu2 = len(zones) + rythme * max((REVUE2_TS - now) / 86400, 0)
-    lignes = [f"🔬 <b>Pour les revues du 22/11 et du 10/12</b> (compté depuis le 05/11) : {len(zones)} zone(s) "
-              f"d'entrée, {len(tem)} témoins, {len(app)} témoins appariés · rythme {rythme:.1f} zone/jour → "
-              f"environ {prevu:.0f} zones le 22/11, {prevu2:.0f} le 10/12 (il en faut au moins 30)"]
-    # zone contre ses témoins tirés au même moment : l'effet du marché du jour s'annule
+    lignes = []
+    # chaque signal Repli contre ses 3 jumeaux tirés au même moment : l'effet du marché du jour s'annule
     par_zid = {}
     for a in app:
         par_zid.setdefault(str(a.get("zid")), []).append(suivi.resultat_sim_net(a))
     ecarts = [suivi.resultat_sim_net(z) - sum(par_zid[str(z.get("zid"))]) / len(par_zid[str(z.get("zid"))])
               for z in zones if par_zid.get(str(z.get("zid")))]
     if ecarts:
-        lignes.append(f"   · zone contre ses témoins du même moment : {len(ecarts)} paire(s) · écart moyen "
-                      f"<b>{sum(ecarts) / len(ecarts) * 100:+.0f} points</b> · médian "
-                      f"{statistics.median(ecarts) * 100:+.0f} · zone devant {sum(e > 0 for e in ecarts)}/{len(ecarts)}")
-    # les videurs à l'aveugle : trient-ils vraiment ? (sur les témoins, qui ne sont pas filtrés par eux)
-    lab = tem + app
+        lignes.append(f"👯 <b>Repli contre ses jumeaux</b> (3 tokens au hasard tirés au même moment, de taille proche) : "
+                      f"{len(ecarts)} duel(s) · écart moyen <b>{sum(ecarts) / len(ecarts) * 100:+.0f} points</b> · "
+                      f"médian {statistics.median(ecarts) * 100:+.0f} · Repli devant {sum(e > 0 for e in ecarts)} "
+                      f"fois sur {len(ecarts)}")
+    else:
+        lignes.append("👯 Repli contre ses jumeaux (3 tokens au hasard tirés au même moment) : pas encore de duel")
+    lignes.append(f"🗓️ Depuis le 05/11 : {len(zones)} signal(s) Repli, rythme {rythme:.1f} par jour → environ "
+                  f"{prevu:.0f} à la grande revue du 22/11, {prevu2:.0f} au deuxième point du 10/12 "
+                  f"(il en faut au moins 30 pour conclure)")
+    return lignes
+
+
+def bilan_tests_a_blanc(st, detail):
+    """Les filtres donnent leur avis sur les tirages au hasard et les jumeaux, sans s'en servir :
+    s'ils trient vraiment, leurs « non » doivent faire nettement moins bien que leurs « oui »."""
+    off = [a for a in st["alerts"] if a["ts"] >= OFFICIEL_DEPUIS]
+    tem = [a for a in off if a.get("type") == "temoin"]
+    lab = tem + [a for a in off if a.get("type") == "temoin_apparie"]
+    lignes = []
     oui = [a for a in lab if a.get("aveugle_videur") == "oui"]
     non = [a for a in lab if a.get("aveugle_videur") == "non"]
     if oui or non:
-        lignes.append("   🤖 Videur Claude à l'aveugle sur les témoins :")
+        lignes.append("   🤖 Filtre Claude (avis rapide) :")
         lignes += detail(oui, "il aurait dit oui") + detail(non, "il aurait dit non")
     a_go = [a for a in tem if a.get("verdict_complet") == "GO"]
     a_non = [a for a in tem if a.get("verdict_complet") in ("NON", "PRUDENCE")]
     if a_go or a_non:
-        lignes.append("   🧠 Analyste Claude à l'aveugle sur les témoins :")
+        lignes.append("   🧠 Analyse Claude (complète, 2 tirages par jour) :")
         lignes += detail(a_go, "GO") + detail(a_non, "prudence ou non")
     s_oui = [a for a in lab if a.get("smart_6h")]
     s_non = [a for a in lab if "smart_6h" in a and not a.get("smart_6h")]
     if s_oui or s_non:
-        lignes.append("   🐋 Les 100 meilleurs wallets Solana (écoute en direct) sur les témoins, 6 h avant le tirage :")
-        lignes += detail(s_oui, "au moins un smart wallet acheteur") + detail(s_non, "aucun")
+        lignes.append("   🐋 Wallets suivis (achats dans les 6 h avant le tirage) :")
+        lignes += detail(s_oui, "au moins un wallet suivi acheteur") + detail(s_non, "aucun")
     c_ok = [a for a in lab if a.get("aveugle_concentration") == "ok"]
     c_non = [a for a in lab if a.get("aveugle_concentration") == "non"]
     if c_ok or c_non:
-        lignes.append("   🔍 Concentration (snipers, achats groupés, initiés) à l'aveugle sur les témoins :")
+        lignes.append("   🔍 Filtre gros porteurs (snipers, achats groupés, initiés) :")
         lignes += detail(c_ok, "acceptable") + detail(c_non, "trop concentré")
+    if not lignes:
+        return ["   <i>pas encore d'avis sur les tirages depuis le 05/11</i>"]
+    return lignes
+
+
+def compteurs_donnees():
+    """Boîte noire et écoute des wallets : où en est la collecte de données sur le serveur."""
+    lignes = []
     try:
         e = json.loads(Path("/home/bot/donnees/etat.json").read_text())
-        lignes.append(f"   💾 Enregistreur : {e.get('jours', 0)} jour(s), {e.get('tokens', 0)} tokens photographiés "
+        lignes.append(f"💾 Boîte noire : {e.get('jours', 0)} jour(s), {e.get('tokens', 0)} tokens photographiés "
                       f"toutes les {e.get('pas_min', '?')} min, {e.get('taille_mo', 0):.0f} Mo")
+    except (OSError, ValueError):
+        pass
+    try:
+        e = json.loads(Path("/home/bot/donnees/smart/smart_etat.json").read_text())
+        lignes.append(f"👂 Écoute des wallets : {e.get('wallets', 0)} wallets Solana écoutés, {e.get('robots', 0)} "
+                      f"robots écartés, {e.get('evenements', 0)} achats ou ventes notés aujourd'hui")
     except (OSError, ValueError):
         pass
     return lignes
@@ -1001,8 +1027,8 @@ def bilan_quotidien(st, sv, pf, forcer=False):
             txt += f" · sans les 3 meilleurs {(sum(g) - sum(g[-3:])) / (n - 3) * 100:+.0f} %"
         rj = [a["rejeu"]["net"] for a in liste if (a.get("rejeu") or {}).get("net") is not None]
         if rj:
-            txt += f"\n   rejoué en bougies de 5 min ({len(rj)}) : moyenne {sum(rj) / len(rj) * 100:+.0f} %"
-            for cle, nom in (("x15", "tout à x1,5 / stop −30 % / 12 h"), ("pos", "tes alertes de position")):
+            txt += f"\n   re-simulation précise ({len(rj)}) : moyenne {sum(rj) / len(rj) * 100:+.0f} %"
+            for cle, nom in (("x15", "avec la vente automatique x1,5 / −30 % / 12 h"), ("pos", "avec tes alertes de position")):
                 r2 = [a["rejeu"][cle] for a in liste if (a.get("rejeu") or {}).get(cle) is not None]
                 if r2:
                     txt += f" · {nom} {sum(r2) / len(r2) * 100:+.0f} %"
@@ -1012,50 +1038,56 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         liste = [a for a in liste if not aberrant(a)]
         return sum(suivi.resultat_sim_net(a) for a in liste) / len(liste) if liste else None
 
-    lignes = ["📊 <b>Bilan quotidien</b> (7 derniers jours, 5 € simulés par signal, frais compris)",
-              "<i>Depuis le 01/11 : plus d'alerte d'achat en direct. On teste la liste d'attente contre un témoin "
-              "tiré au hasard ; elle ne vaudra quelque chose que si elle le bat sur au moins 50 signaux.</i>"]
     att = [a for a in alertes if a.get("type") == "attente"]
     tem = [a for a in alertes if a.get("type") == "temoin"]
-    lignes += strat(att, "📋 Liste d'attente : zones d'entrée")
-    # confirmations du repli (observation) : est-ce qu'elles séparent les bonnes zones des mauvaises ?
+    lignes = ["📊 <b>Bilan du jour</b> · 5 € fictifs par signal, frais Fomo compris, 7 derniers jours",
+              "<i>La question : la stratégie Repli fait-elle mieux que des tokens tirés au hasard ? "
+              "Rien n'est acheté pour de vrai tant qu'elle ne l'a pas prouvé.</i>",
+              "", "<b>① La course : Repli contre hasard</b>"]
+    lignes += strat(att, "🎯 Signaux Repli (token installé qui a monté puis replié de 15 à 35 %)")
+    lignes += strat(tem, "🎲 Tirages au hasard (1 par heure, mêmes filtres de base)")
+    ma, mt = moy(att), moy(tem)
+    if ma is not None and mt is not None:
+        lignes.append(f"   → écart Repli − tirages : <b>{(ma - mt) * 100:+.0f} points</b> "
+                      f"({len(att)} signaux contre {len(tem)} tirages)")
+    lignes += bilan_course(st)
+
+    lignes += ["", "<b>② Les filtres trient-ils vraiment ?</b>"]
+    # indices sur les signaux Repli (affichés et comptés, ce ne sont pas des filtres)
+    indices = []
     p_hausse = [a for a in att if a.get("porteurs0") and a.get("porteurs") and a["porteurs"] > a["porteurs0"]]
     p_baisse = [a for a in att if a.get("porteurs0") and a.get("porteurs") and a["porteurs"] <= a["porteurs0"]]
     if p_hausse or p_baisse:
-        lignes += detail(p_hausse, "porteurs en hausse pendant l'attente") + detail(p_baisse, "porteurs en baisse")
+        indices += detail(p_hausse, "porteurs en hausse pendant l'attente") + detail(p_baisse, "porteurs en baisse")
     s_oui = [a for a in att if a.get("smart_achats")]
     s_non = [a for a in att if "smart_achats" in a and not a.get("smart_achats")]
     if s_oui or s_non:
-        lignes += detail(s_oui, "smart wallets acheteurs pendant le repli") + detail(s_non, "aucun smart wallet acheteur")
-    # analyste Claude complet (option 4) : ses verdicts séparent-ils les bonnes zones des mauvaises ?
+        indices += detail(s_oui, "wallets suivis acheteurs pendant le repli") + detail(s_non, "aucun wallet suivi acheteur")
     v_go = [a for a in att if a.get("verdict_complet") == "GO"]
     v_non = [a for a in att if a.get("verdict_complet") in ("NON", "PRUDENCE")]
     if v_go or v_non:
-        lignes += detail(v_go, "analyste Claude : GO") + detail(v_non, "analyste Claude : prudence ou non")
+        indices += detail(v_go, "Analyse Claude : GO") + detail(v_non, "Analyse Claude : prudence ou non")
+    if indices:
+        lignes.append("🔎 Indices sur les signaux Repli :")
+        lignes += indices
     # ton tri (boutons « j'ai acheté / pas pris ») : en privé, seulement sur Telegram
     choix = (positions.charger().get("choix_zones") or {})
     pris = [a for a in att if choix.get(str(a.get("zid"))) == "achete"]
     laisses = [a for a in att if choix.get(str(a.get("zid"))) == "passe"]
     if pris or laisses:
-        lignes.append("🙋 <b>Ton tri</b> (zones prises contre laissées, même simulation) :")
-        lignes += detail(pris, "prises") + detail(laisses, "laissées")
-    lignes += strat(tem, "🎲 Témoin : un token au hasard, mêmes filtres")
-    ma, mt = moy(att), moy(tem)
-    if ma is not None and mt is not None:
-        lignes.append(f"   → écart liste d'attente − témoin : <b>{(ma - mt) * 100:+.0f} points</b> "
-                      f"({len(att)} contre {len(tem)} signaux)")
-    lignes += bilan_decision(st, detail, moy)
-    lignes += meteora_sim.bilan(st)
+        lignes.append("🙋 <b>Ton tri</b> (signaux pris contre laissés, même simulation) :")
+        lignes += detail(pris, "pris") + detail(laisses, "laissés")
+    lignes.append("🧪 <b>Test à blanc</b> : les filtres donnent leur avis sur les tirages au hasard, sans s'en servir "
+                  "(compté depuis le 05/11) :")
+    lignes += bilan_tests_a_blanc(st, detail)
+
+    lignes += ["", "<b>③ Les essais pour plus tard</b> (rien d'engagé)"]
     lignes += faux_ordres.bilan(st)
-    jetes = [a for a in alertes if a.get("type") == "attente_jete"]
-    if jetes:
-        par = {}
-        for a in jetes:
-            par.setdefault(a.get("etape", "?"), []).append(a)
-        lignes.append("🗑️ Jetés en route (pour vérifier qu'on a eu raison) : " + " · ".join(
-            f"{etape} {len(l)} ({moy(l) * 100:+.0f} %)" for etape, l in par.items() if moy(l) is not None))
+    lignes += meteora_sim.bilan(st)
+
+    lignes += ["", "<b>④ Anciennes alertes</b> (abandonnées, encore mesurées)"]
     mom = [a for a in alertes if a.get("type") == "momentum" and a["chain"] not in v.CHAINES_OBS]
-    lignes += strat(mom, "🚀 Momentum (observation)")
+    lignes += strat(mom, "🚀 Momentum")
     if mom:
         avec = [a for a in mom if a.get("evitement")]
         sans = [a for a in mom if "evitement" in a and not a.get("evitement")]
@@ -1063,44 +1095,55 @@ def bilan_quotidien(st, sv, pf, forcer=False):
             lignes.append(f"   dont qui passent les filtres d'évitement : {len(sans)} ({moy(sans) * 100:+.0f} %) · "
                           f"écartés par ces filtres : {len(avec)} ({moy(avec) * 100:+.0f} %)")
     lignes += strat([s for s in signaux if not s["trop_tard"] and s["ts"] >= SMART_STRICT_DEPUIS],
-                    "🐋 Smart wallets à temps (liste stricte depuis le 01/11)")
-    lignes.append(f"<i>Règle simulée : moitié vendue à x2, tout coupé à −50 % avant ça, le reste vendu s'il retombe "
-                  f"à x1 ou perd 50 % depuis son plus haut. Frais Fomo {suivi.FRAIS_MIN:.2f} € minimum par ordre.</i>")
+                    "🐋 3 wallets gagnants sur le même token")
+    jetes = [a for a in alertes if a.get("type") == "attente_jete"]
+    if jetes:
+        par = {}
+        for a in jetes:
+            par.setdefault(a.get("etape", "?"), []).append(a)
+        lignes.append("🗑️ Écartés par un filtre de la stratégie Repli (pour vérifier qu'on a eu raison) : " + " · ".join(
+            f"{etape} {len(l)} ({moy(l) * 100:+.0f} %)" for etape, l in par.items() if moy(l) is not None))
+    lignes.append(f"<i>Règle de vente simulée : moitié vendue à x2, tout coupé à −50 % avant ça, le reste vendu s'il "
+                  f"retombe à x1 ou perd 50 % depuis son plus haut. Frais Fomo {suivi.FRAIS_MIN:.2f} € minimum par ordre. "
+                  f"« Re-simulation précise » = la même chose rejouée sur les bougies de 5 min.</i>")
+
     pf_pos = positions.charger()
     j = positions.journal_txt(pf_pos, jours=7)
     if j or pf_pos["positions"]:
-        lignes.append("\n" + (j or "📒 Aucun trade fermé cette semaine")
-                      + f" · {len(pf_pos['positions'])} position(s) ouverte(s)")
-    m = sv.get("marche") or {}
-    if m:
-        lignes.append(f"🌡️ Marché : memecoins suivis {m['med_6h']:+.0f} % sur 6 h, {m['med_24h']:+.0f} % "
-                      f"sur 24 h (médiane de {m['n']} tokens)")
+        lignes += ["", "<b>⑤ Tes trades</b>", (j or "📒 Aucun trade fermé cette semaine")
+                   + f" · {len(pf_pos['positions'])} position(s) ouverte(s)"]
 
     recentes = sorted((a for a in alertes + signaux if now - a["ts"] < 86400 and a.get("type", "smart") in BILAN_TYPES + ("smart",)
                        and a.get("type") != "attente_jete"), key=lambda a: a["ts"])
     if recentes:
         lignes.append("\n<b>Dernières 24 h :</b>")
-        icones = {"attente": "📋", "temoin": "🎲", "attente_jete": "🗑️", "momentum": "🚀"}
+        icones = {"attente": "🎯", "temoin": "🎲", "attente_jete": "🗑️", "momentum": "🚀"}
         for a in recentes:
             xn, pk = perf(a)
             ic = "🐋" if "wallets" in a else ("🟣" if a.get("chain") in v.CHAINES_OBS
                                               else icones.get(a.get("type", "classique"), "•"))
             fin = "mort ☠️" if a.get("mort") or xn < 0.1 else f"maintenant x{xn:.2f}"
-            note = (" (trop tard)" if a.get("trop_tard") else "") + (
-                " (obs.)" if a.get("observation") or ("wallets" in a and not a.get("envoye")) else "")
+            note = " (trop tard)" if a.get("trop_tard") else ""
             lignes.append(f"{ic} ${html.escape(str(a['symbol']))}{note} : mcap {fmt_usd(a['mcap'])} · plus haut x{pk:.1f} · {fin}"
                           f" · simulé {suivi.resultat_sim_net(a) * suivi.MISE_SIM:+.2f} €")
+
+    lignes.append("\n<b>Le système en chiffres</b>")
+    m = sv.get("marche") or {}
+    if m:
+        lignes.append(f"🌡️ Marché : memecoins suivis {m['med_6h']:+.0f} % sur 6 h, {m['med_24h']:+.0f} % "
+                      f"sur 24 h (médiane de {m['n']} tokens)")
+    lignes.append(f"👀 {len(st.get('attente', {}))} token(s) en surveillance (ils ont monté, on attend leur repli) · "
+                  f"📡 {len(sv['tokens'])} tokens suivis par le bot")
     n_w, n_smart = portefeuilles.stats(pf)
-    lignes.append(f"\n🐋 Base de wallets : {n_w} observés, {n_smart} « smart » (au moins "
+    lignes.append(f"🐋 Base de wallets : {n_w} observés, {n_smart} « gagnants » prouvés (au moins "
                   f"{portefeuilles.SMART_MIN_TOKENS} tokens, réussite nettement au-dessus du hasard, "
                   f"qui est de {portefeuilles.taux_de_base(pf) * 100:.0f} %)")
+    lignes += compteurs_donnees()
     if BALEINES_ACTIVES:
         nb_b, ach_b = baleines.stats()
         if nb_b:
             lignes.append(f"🐳 {nb_b} baleine(s) suivie(s), {ach_b} achat(s) repéré(s) en 24 h\n   "
                           + html.escape(baleines.etat_rpc()))
-    lignes.append(f"📋 {len(st.get('attente', {}))} token(s) en liste d'attente")
-    lignes.append(f"👀 {len(sv['tokens'])} tokens suivis en ce moment")
     lignes.append("<i>« plus haut » = mesuré toutes les 30 min, le vrai sommet a pu être un peu plus haut.</i>")
     if envoyer_long("\n".join(lignes)):
         st["dernier_bilan"] = jour             # marqué envoyé seulement si Telegram l'a accepté

@@ -295,7 +295,7 @@ def analyste_sur_temoin(st, t, e, now, sec_txt):
     f = forme(e, t, now) if e else None
     zid = int(now)
     st["alerts"][-1]["zid"] = zid
-    lignes = [f"📋 <b>Zone d'entrée : ${html.escape(str(t['symbol']))}</b> ({t['chain']}) — {t['age_h'] / 24:.1f} jours",
+    lignes = [f"🎯 <b>Signal Repli : ${html.escape(str(t['symbol']))}</b> ({t['chain']}) — {t['age_h'] / 24:.1f} jours",
               f"mcap {_fmt(t['mcap'])} · liq {_fmt(t['liq'])} · vol 24 h {_fmt(t['vol_24h'])}",
               (f"📈 x{f['hausse']:.1f} avant le sommet, repli de {f['repli'] * 100:.0f} %" if f else ""),
               f"👥 {t['buys_1h']} achats / {t['sells_1h']} ventes sur 1 h",
@@ -441,12 +441,12 @@ def relayer_analyses(st, envoyer):
                 best = max(paires, key=lambda x: (x.get("liquidity") or {}).get("usd") or 0)
                 mc_n = best.get("marketCap") or best.get("fdv") or 0
                 liq_n = (best.get("liquidity") or {}).get("usd") or 0
-                maj = (f"\n⏱️ Lu par l'analyste à {_heure_paris(d.get('heure'))} : mcap {_fmt(mc_a)}"
+                maj = (f"\n⏱️ Lu par Claude à {_heure_paris(d.get('heure'))} : mcap {_fmt(mc_a)}"
                        if mc_a else "")
                 if mc_n:
                     ecart = f" ({(mc_n / mc_a - 1) * 100:+.0f} % depuis)" if mc_a else ""
                     maj += f"\n📍 Maintenant : mcap {_fmt(mc_n)}{ecart} · liquidité {_fmt(liq_n)}"
-        ok = envoyer(f"🧠 <b>Analyste Claude : ${html.escape(str(d.get('symbole', '?')))} → {html.escape(verdict)}</b>\n"
+        ok = envoyer(f"🧠 <b>Analyse Claude du signal Repli ${html.escape(str(d.get('symbole', '?')))} → {html.escape(verdict)}</b>\n"
                      + html.escape(str(d.get("texte", "")))[:3000] + maj)
         print(f"analyste Claude : verdict {d.get('symbole')} {verdict} relayé ({'ok' if ok else 'échec Telegram'})")
         nouveaux += 1
@@ -556,18 +556,18 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset())
             conf_txt.append(f"porteurs {p0} → {p1} ({(p1 / p0 - 1) * 100:+.0f} % depuis l'entrée en liste)")
         if conf:
             conf_txt.append(f"depuis le sommet : {conf['acheteurs']} acheteurs / {conf['vendeurs']} vendeurs distincts, "
-                            f"smart wallets {conf['smart_achats']} achat(s), {conf['smart_ventes']} vente(s)")
+                            f"wallets suivis {conf['smart_achats']} achat(s), {conf['smart_ventes']} vente(s)")
         # 6. zone d'entrée validée
         stop = f["bas"] * f["ratio_mcap"] * 0.9
         lignes = [
-            f"📋 <b>Zone d'entrée : ${html.escape(str(t['symbol']))}</b> ({t['chain']}) — {t['age_h'] / 24:.1f} jours",
+            f"🎯 <b>Signal Repli : ${html.escape(str(t['symbol']))}</b> ({t['chain']}) — {t['age_h'] / 24:.1f} jours",
             f"mcap {_fmt(t['mcap'])} · liq {_fmt(t['liq'])} ({t['liq'] / t['mcap'] * 100:.0f} %) · vol 24 h {_fmt(t['vol_24h'])}",
             f"📈 x{f['hausse']:.1f} avant le sommet ({_fmt(f['haut'] * f['ratio_mcap'])}), repli de "
             f"{f['repli'] * 100:.0f} %, plancher tenu depuis {(now - f['bas_ts']) / 3600:.0f} h",
             f"👥 {t['buys_1h']} achats / {t['sells_1h']} ventes sur 1 h",
             f"🛡️ {sec_txt}",
             f"🔍 {st_txt}" if st_txt else "",
-            f"🤖 Claude : {html.escape(raison_c)}",
+            f"🤖 Filtre Claude : {html.escape(raison_c)}",
             ("🔎 " + " · ".join(conf_txt)) if conf_txt else "",
             f"🎯 Coupe sous {_fmt(stop)} (10 % sous le plancher) ; moitié à x2 ; sortie forcée à 24 h si rien ne bouge.",
             f"<a href=\"{t.get('dexscreener')}\">Voir sur DexScreener</a>",

@@ -25,7 +25,8 @@ import time
 
 import outils as v
 
-EN_DIRECT = True              # messages Telegram « 🧪 Meteora simulé » (aucun argent engagé)
+EN_DIRECT = True              # messages Telegram « 🧪 Meteora fictif » (aucun argent engagé)
+SOURCES = {"liste d'attente": "sur un signal Repli", "pool Meteora": "grosse pool Meteora qui replie"}   # libellés
 API = "https://dlmm.datapi.meteora.ag"
 SOL = "So11111111111111111111111111111111111111112"
 CAPITAL_USD = 115             # ≈ 100 €
@@ -111,7 +112,8 @@ def ouvrir(st, t, f, envoyer, source="liste d'attente"):
         "dernier_ts": int(time.time()) - 300, "au_dessus_depuis": None, "prix": prix,
         "touche": False, "source": source}
     if EN_DIRECT:
-        envoyer(f"🧪 <b>Meteora simulé : position ouverte sur ${html.escape(str(t['symbol']))}</b> ({source})\n"
+        envoyer(f"🧪 <b>Meteora fictif : position ouverte sur ${html.escape(str(t['symbol']))}</b> "
+                f"({SOURCES.get(source, source)})\n"
                 f"Pool {html.escape(str(p.get('name')))} · taux {i['taux_base']} % (payé en moyenne "
                 f"{i['taux'] * 100:.2f} %) · liquidité {i['tvl'] / 1e3:.0f} k$\n"
                 f"100 € de SOL fictifs en {len(cases)} cases, de −{ZONE_HAUT * 100:.0f} % à "
@@ -193,7 +195,7 @@ def fermer(st, k, pos, raison, prix, envoyer):
     m["fermees"] = [x for x in m["fermees"] if time.time() - x["fin"] < 60 * 86400]
     del m["ouvertes"][k]
     if EN_DIRECT:
-        envoyer(f"🧪 <b>Meteora simulé : position fermée sur ${html.escape(str(pos['symbol']))}</b> ({raison})\n"
+        envoyer(f"🧪 <b>Meteora fictif : position fermée sur ${html.escape(str(pos['symbol']))}</b> ({raison})\n"
                 + (f"Liquidité : <b>{lp * 100:+.1f} %</b> (dont frais {pos['frais_sol'] * 100:+.1f} %), "
                    f"soit {lp * 100:+.0f} € sur 100 €\n"
                    f"Ordres échelonnés (mêmes achats, token gardé) : {ech * 100:+.1f} %"
@@ -305,7 +307,7 @@ def bilan(st):
     if not f:
         n = len((st.get("meteora") or {}).get("ouvertes", {}))
         sp = (st.get("meteora") or {}).get("sans_pool", 0)
-        return [f"🧪 Meteora simulé : aucune position fermée pour l'instant ({n} ouverte(s) ; "
+        return [f"🧪 Meteora fictif (100 € fictifs placés dans une pool) : aucune position fermée pour l'instant ({n} ouverte(s) ; "
                 f"{sp} token(s) en repli sans pool Meteora assez actif)"]
     lignes = []
     for source in ("liste d'attente", "pool Meteora"):
@@ -316,7 +318,7 @@ def bilan(st):
         ech = sum(x["echelonne"] for x in g_) / len(g_)
         fr = sum(x["frais"] for x in g_) / len(g_)
         g = sum(x["lp"] > 0 for x in g_) / len(g_)
-        lignes.append(f"🧪 <b>Meteora simulé ({source})</b> : {len(g_)} positions · liquidité <b>{lp * 100:+.1f} %</b> "
+        lignes.append(f"🧪 <b>Meteora fictif ({SOURCES[source]})</b> : {len(g_)} positions · liquidité <b>{lp * 100:+.1f} %</b> "
                       f"en moyenne (dont frais {fr * 100:+.1f} %, gagnantes {g * 100:.0f} %) · ordres échelonnés "
                       f"{ech * 100:+.1f} %")
     return lignes
