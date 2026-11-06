@@ -60,7 +60,16 @@ CLAUDE_MODELE = os.getenv("CLAUDE_MODEL_VIDEUR", "claude-haiku-5-5")
 SMART_TRADES_PAGE = True      # lit les derniers échanges du pool (1 appel GeckoTerminal par zone)
 # --- témoin
 TEMOIN_TOUTES_MIN = 60
-TIRAGE_ESSAIS = 6             # candidats essayés à la sécurité avant d'abandonner le tirage de l'heure
+TIRAGE_ESSAIS = 12            # vérifications de sécurité nouvelles au plus par tirage (les refus sont gardés 6 h)
+SECU_REFUS_H = 6              # 06/11 : la plupart des candidats échouent toujours pour la même raison
+# --- 0. univers élargi (06/11) : seuls ~20 tokens Solana suivis étaient dans la cible (repérage), d'où
+# moins d'un signal Repli par jour. On recrute chaque heure les tokens installés les plus échangés sur
+# Jupiter (listes publiques, sans clé). Mêmes règles ensuite : seul le nombre de candidats change.
+RECRUTEMENT = True
+RECRUTE_TOUTES_MIN = 60
+RECRUTE_PLACE = 200           # on laisse toujours 200 places du suivi aux tokens jeunes
+JUP_TOKENS = "https://lite-api.jup.ag/tokens/v2"
+RECRUTE_LISTES = [(c, i) for c in ("toptraded", "toporganicscore", "toptrending") for i in ("1h", "6h", "24h")]
 TEMOINS_APPARIES = 3          # 05/11 : pour chaque zone, 3 tokens tirés au hasard AU MÊME MOMENT
 ANALYSTE_TEMOINS_HEURES = (8, 15)   # 05/11 (option 22) : l'analyste Claude voit aussi 2 témoins par jour,
                                     # à partir de 8 h et de 15 h UTC, sans le savoir ; ses verdicts sur eux
@@ -84,6 +93,42 @@ def evitement(t):
     if (t.get("achats_par_acheteur_1h") or 0) > EVIT_ACHATS_PAR_ACHETEUR:
         return f"{t['achats_par_acheteur_1h']} achats par acheteur en 1 h (bots)"
     return None
+
+
+def recruter(st, now):
+    """Adresses de tokens Solana installés parmi les plus échangés sur Jupiter (une fois par heure)."""
+    if not RECRUTEMENT or now - st.get("recrute_ts", 0) < RECRUTE_TOUTES_MIN * 60:
+        return []
+    st["recrute_ts"] = now
+    vus = set()
+    for cat, iv in RECRUTE_LISTES:
+        try:
+            r = requests.get(f"{JUP_TOKENS}/{cat}/{iv}?limit=100", timeout=20,
+                             headers={**v.UA, "Accept": "application/json"})
+            d = r.json() if r.ok else []
+        except (requests.RequestException, ValueError):
+            d = []
+        for x in d if isinstance(d, list) else []:
+            mc, liq = x.get("mcap") or 0, x.get("liquidity") or 0
+            if x.get("id") and 0.7 * MCAP_MIN <= mc <= 1.3 * MCAP_MAX and liq >= 0.8 * LIQ_MIN:
+                vus.add(x["id"])
+        time.sleep(1.5)
+    return sorted(vus)
+
+
+def securite_memo(st, t, securite):
+    """Sécurité, en gardant les refus 6 h (un token refusé l'est presque toujours pour la même raison).
+    Un token accepté est toujours revérifié."""
+    memo = st.setdefault("secu_refus", {})
+    now = time.time()
+    for k in [k for k, x in memo.items() if now - x[0] > SECU_REFUS_H * 3600]:
+        del memo[k]
+    if t["key"] in memo:
+        return False, memo[t["key"]][1], False
+    ok, txt = securite(t)
+    if not ok:
+        memo[t["key"]] = [now, re.sub(r"<[^>]+>", "", str(txt)).split("\n")[0][:60]]
+    return ok, txt, True
 
 
 def eligible(t):
@@ -320,7 +365,7 @@ def temoins_apparies(st, frais, t_zone, zid, securite, ajouter_suivi, sv, now):
         if t["key"] in vus:
             continue
         vus.add(t["key"])
-        ok, sec_txt = securite(t)
+        ok, sec_txt, _ = securite_memo(st, t, securite)
         if not ok:
             continue
         lab = etiqueter_a_l_aveugle(t, sv["tokens"].get(t["key"]), now, sec_txt)
@@ -592,9 +637,12 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset())
         pool = [t for t in frais if eligible(t) and evitement(t) is None
                 and t["key"] not in {a["key"] for a in st["alerts"][-200:] if a.get("type") == "temoin"}]
         random.shuffle(pool)
-        refus = []
-        for t in pool[:TIRAGE_ESSAIS]:
-            ok, sec_txt = securite(t)
+        refus, essais = [], 0
+        for t in pool:
+            if essais >= TIRAGE_ESSAIS:
+                break
+            ok, sec_txt, neuf = securite_memo(st, t, securite)
+            essais += neuf
             if not ok:
                 refus.append(re.sub(r"<[^>]+>", "", str(sec_txt)).split("\n")[0][:40])
             if ok:
@@ -614,5 +662,5 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset())
         n_elig = sum(1 for t in frais if eligible(t))
         print(f"tirage au hasard : {len(pool)} candidat(s) sur {n_elig} token(s) éligible(s), "
               + (f"tiré {st['alerts'][-1].get('symbol')}" if st.get("temoin_ts") == now
-                 else f"aucun tiré, refus sécurité : {' | '.join(refus) or 'aucun candidat'}"))
+                 else f"aucun tiré, {len(refus)} refusé(s) à la sécurité : {' | '.join(refus[:4]) or 'aucun candidat'}"))
     print(f"liste d'attente : {len(liste)} token(s) en attente, {zones} zone(s) d'entrée vérifiée(s)")

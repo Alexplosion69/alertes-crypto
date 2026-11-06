@@ -498,7 +498,23 @@ def cycle(st, sent_this_hour, sv, pf):
     for k, w in st["watch"].items():
         if k not in cands:
             cands[k] = {"chain": w["chain"], "address": w["address"], "sources": ["suivi"], "boost": 0}
+    recrues = attente.recruter(st, now)     # univers élargi : tokens installés vus sur Jupiter (1 fois/h)
+    for adr in recrues:
+        c = cands.setdefault(v.key_of("solana", adr), {"chain": "solana", "address": adr, "sources": [], "boost": 0})
+        if "installe_jupiter" not in c["sources"]:
+            c["sources"].append("installe_jupiter")
     tokens = v.enrich(cands)
+    if recrues:
+        nouveaux = 0
+        for t in tokens:
+            if "installe_jupiter" not in t.get("sources", []):
+                continue
+            if t["key"] in sv["tokens"]:
+                suivi.ajouter(sv, t, garder=True)        # encore dans les listes : gardé 7 jours de plus
+            elif len(sv["tokens"]) < suivi.SUIVI_MAX - attente.RECRUTE_PLACE and t.get("price"):
+                suivi.ajouter(sv, t, garder=True)
+                nouveaux += 1
+        print(f"univers élargi : {len(recrues)} token(s) installé(s) vus sur Jupiter, {nouveaux} ajouté(s) au suivi")
 
     # liste de suivi : seulement les tokens jeunes et pas minuscules (sinon elle explose)
     found = {t["key"] for t in tokens}
