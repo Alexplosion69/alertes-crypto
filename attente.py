@@ -555,8 +555,12 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset())
             continue
         w["liq_max"] = max(w["liq_max"], t["liq"])
         f = forme(e, t, now)
-        raison = evitement(t)
-        if raison is None and t["liq"] < LIQ_FONTE * w["liq_max"]:
+        # 07/11 : l'évitement (pompe en cours, bots, pub payée…) ne sort plus un token de la surveillance.
+        # Il servait à ne pas acheter la bougie ; appliqué à chaque relevé, il jetait justement les tokens
+        # en train de faire la hausse qu'on attend (99 des 110 abandons depuis le 05/11, à −3 % en moyenne
+        # contre −17 % pour les tirages). Il est maintenant vérifié au moment du signal (plus bas).
+        raison = None
+        if t["liq"] < LIQ_FONTE * w["liq_max"]:
             raison = f"liquidité qui fond ({_fmt(t['liq'])} contre {_fmt(w['liq_max'])} au plus haut)"
         if raison is None and f and f["repli"] > REPLI_CASSE:
             raison = f"repli de {f['repli'] * 100:.0f} % : scénario cassé"
@@ -573,6 +577,8 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset())
         if not (plancher and t["liq"] >= LIQ_STABLE * f["liq_12h"] and t["buys_1h"] >= t["sells_1h"]
                 and t.get("chg_5m", 0) > CHUTE_5M_MAX):
             continue
+        if evitement(t) is not None:           # au moment d'acheter : bots, volume gonflé, pub payée…
+            continue                           # on attend le relevé suivant, le token reste surveillé
         if zones >= MAX_ZONES_PAR_RELEVE:
             break
         zones += 1

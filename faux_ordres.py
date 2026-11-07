@@ -50,7 +50,7 @@ def prix_sol():
 
 
 def _prix_actuels(adresses):
-    """Prix et liquidité DexScreener des tokens suivis (30 par appel)."""
+    """Prix, liquidité et mcap DexScreener des tokens suivis (30 par appel)."""
     res = {}
     adresses = list(adresses)
     for i in range(0, len(adresses), 30):
@@ -59,7 +59,7 @@ def _prix_actuels(adresses):
             a = (p.get("baseToken") or {}).get("address")
             liq = (p.get("liquidity") or {}).get("usd") or 0
             if a and p.get("priceUsd") and liq >= res.get(a, (0, -1))[1]:
-                res[a] = (float(p["priceUsd"]), liq)
+                res[a] = (float(p["priceUsd"]), liq, p.get("marketCap") or p.get("fdv") or 0)
     return res
 
 
@@ -72,7 +72,7 @@ def ouvrir(fo, a, sol_usd):
     fo["ouvertes"][f"{a['key']}:{int(a['ts'])}"] = {
         "symbol": a["symbol"], "address": a["address"], "type": a["type"], "ts": time.time(),
         "ts_alerte": a["ts"], "prix_affiche": a["price"], "sol_depense": lamports / 1e9 + FRAIS_RESEAU_SOL,
-        "sol_usd": sol_usd, "quantite": recu, "liq0": None, "haut": 1.0}
+        "sol_usd": sol_usd, "quantite": recu, "liq0": None, "haut": 1.0, "mcap0": a.get("mcap")}
 
 
 def fermer(fo, k, pos, raison, prix_affiche_sortie):
@@ -115,8 +115,13 @@ def tick(st):
             if now - pos["ts"] > DUREE_H * 3600:
                 fermer(fo, k, pos, "plus de prix affiché (token mort ?)", 0)
             continue
-        p, liq = pa
+        p, liq, mc = pa
         x = p / pos["prix_affiche"] if pos["prix_affiche"] else 1
+        # 07/11 : un prix DexScreener aberrant (x56 863 sur Rocco) déclenchait l'objectif x1,5 à tort.
+        # Le prix doit bouger comme la mcap, et pas de x10 d'une minute à l'autre.
+        x_mc = mc / pos["mcap0"] if pos.get("mcap0") and mc else None
+        if x > 10 or (x_mc and max(x, x_mc) / max(min(x, x_mc), 1e-9) > 1.5):
+            continue
         pos["haut"] = max(pos["haut"], x)
         raison = None
         if pos["liq0"] and liq < RUG_LIQ * pos["liq0"]:
@@ -144,8 +149,10 @@ def bilan(st):
         if not g:
             continue
         m = sum(x["res"] for x in g) / len(g)
-        pap = [x["papier"] for x in g if x.get("papier") is not None]
-        ecart = (m - sum(pap) / len(pap)) * 100 if pap else 0
+        # écart réel − affiché, sur les ordres dont le prix affiché est plausible (un prix DexScreener
+        # aberrant donnait −196 081 points le 07/11)
+        ec = [x["res"] - x["papier"] for x in g if x.get("papier") is not None and -1 <= x["papier"] <= 9]
+        ecart = sum(ec) / len(ec) * 100 if ec else 0
         raisons = {}
         for x in g:
             raisons[x["raison"]] = raisons.get(x["raison"], 0) + 1
