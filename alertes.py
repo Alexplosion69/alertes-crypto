@@ -1210,7 +1210,7 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         lignes.append(f"🌡️ Marché : memecoins suivis {m['med_6h']:+.0f} % sur 6 h, {m['med_24h']:+.0f} % "
                       f"sur 24 h (médiane de {m['n']} tokens)")
     lignes.append(f"👀 {len(st.get('attente', {}))} token(s) en surveillance (ils ont monté, on attend leur repli) · "
-                  f"📡 {len(sv['tokens'])} tokens suivis par le bot")
+                  f"📡 {suivi.vivants(sv)} tokens suivis par le bot (+ {len(sv['tokens']) - suivi.vivants(sv)} morts gardés pour l'historique)")
     n_w, n_smart = portefeuilles.stats(pf)
     n_sol = sum(1 for k in portefeuilles.smart(pf) if k.startswith("solana:"))
     lignes.append(f"🐋 Base de wallets : {n_w} observés, {n_smart} « gagnants » prouvés dont {n_sol} sur Solana "
