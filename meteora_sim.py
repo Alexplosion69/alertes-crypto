@@ -26,7 +26,7 @@ import time
 import outils as v
 
 EN_DIRECT = True              # messages Telegram « 🧪 Meteora fictif » (aucun argent engagé)
-SOURCES = {"liste d'attente": "sur un signal Repli", "pool Meteora": "grosse pool Meteora qui replie"}   # libellés
+SOURCES = {"liste d'attente": "token en surveillance qui replie", "pool Meteora": "grosse pool Meteora qui replie"}
 API = "https://dlmm.datapi.meteora.ag"
 SOL = "So11111111111111111111111111111111111111112"
 CAPITAL_USD = 115             # ≈ 100 €
@@ -164,7 +164,8 @@ def suivre(st, k, pos, envoyer):
             break
         if cl > haut_zone and pos["touche"]:
             pos["au_dessus_depuis"] = pos["au_dessus_depuis"] or ts
-            if ts - pos["au_dessus_depuis"] >= REMONTE_H * 3600:
+            # 09/11 : $PI fermé 40 min après l'ouverture (trou dans les bougies) : on exige aussi 1 h réelle
+            if ts - pos["au_dessus_depuis"] >= REMONTE_H * 3600 and time.time() - pos["ts"] >= REMONTE_H * 3600:
                 fin = ("retour au-dessus de la zone pendant 1 h", cl)
                 break
         else:

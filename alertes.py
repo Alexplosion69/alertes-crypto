@@ -19,6 +19,7 @@ Gratuit : DexScreener, GeckoTerminal, RugCheck, GoPlus. Pas de X ni de Claude ic
 import html
 import json
 import os
+import random
 import re
 import statistics
 import sys
@@ -99,7 +100,7 @@ SURV_ACHETEURS_24H_MIN = 300  # acheteurs uniques sur 24 h
 SURV_REALERTE_H = 48
 
 BILAN_TYPES = ("attente", "temoin", "attente_jete", "momentum")
-BILAN_TYPES_ETUDE = BILAN_TYPES + ("temoin_apparie",)   # comptés et rejoués, mais pas listés un par un
+BILAN_TYPES_ETUDE = BILAN_TYPES + ("temoin_apparie", "jumeau_wallets")   # comptés et rejoués, mais pas listés un par un
 # 05/11/2026 : début du compteur officiel (videur Claude enfin fonctionnel, témoins appariés, étiquettes)
 OFFICIEL_DEPUIS = 1793876400       # 05/11/2026 12 h (Paris)
 REVUE_TS = 1795388340              # 22/11/2026 23 h 59 (Paris)
@@ -505,15 +506,20 @@ def cycle(st, sent_this_hour, sv, pf):
             c["sources"].append("installe_jupiter")
     tokens = v.enrich(cands)
     if recrues:
-        nouveaux = 0
+        nouveaux, n_viv = 0, suivi.vivants(sv)
         for t in tokens:
             if "installe_jupiter" not in t.get("sources", []):
                 continue
-            if t["key"] in sv["tokens"]:
-                suivi.ajouter(sv, t, garder=True)        # encore dans les listes : gardé 7 jours de plus
-            elif len(sv["tokens"]) < suivi.SUIVI_MAX - attente.RECRUTE_PLACE and t.get("price"):
-                suivi.ajouter(sv, t, garder=True)
+            e = sv["tokens"].get(t["key"])
+            if e is None:
+                if n_viv >= suivi.SUIVI_MAX - attente.RECRUTE_PLACE or not t.get("price"):
+                    continue
+                e = suivi.ajouter(sv, t, garder=True)
+                e["garder_jusqua"] = 0
                 nouveaux += 1
+                n_viv += 1
+            # encore dans les listes de Jupiter : gardé 2 jours de plus (sans écourter une autre raison)
+            e["garder_jusqua"] = max(e.get("garder_jusqua", 0), now + attente.RECRUTE_GARDE_H * 3600)
         print(f"univers élargi : {len(recrues)} token(s) installé(s) vus sur Jupiter, {nouveaux} ajouté(s) au suivi")
 
     # liste de suivi : seulement les tokens jeunes et pas minuscules (sinon elle explose)
@@ -644,6 +650,10 @@ def cycle(st, sent_this_hour, sv, pf):
         sent_this_hour[0] += 1 if ok else 0
         return ok
     portefeuilles.collecter(pf, sv, securite, envoyer)
+    try:
+        jumeaux_wallets(st, sv, pf)
+    except Exception as e:
+        print(f"[warn] jumeaux des wallets : {e!r}")
     if BALEINES_ACTIVES:
         try:
             baleines.surveiller(st, sv, lambda t: suivi.ajouter(sv, t, garder=True), envoyer)
@@ -653,6 +663,44 @@ def cycle(st, sent_this_hour, sv, pf):
         suivi.rejouer([a for a in st["alerts"] if a.get("type") in BILAN_TYPES_ETUDE] + pf["signaux"], sv)
     except Exception as e:
         print(f"[warn] rejeu : {e!r}")
+
+
+JUMEAUX_WALLETS = 3
+
+
+def jumeaux_wallets(st, sv, pf):
+    """09/11 : le signal « 3 wallets gagnants » (Robinhood Chain à 86 sur 87) gagne en moyenne depuis le
+    01/11, mais le marché de la chaîne montait peut-être aussi. Pour chaque signal à temps, 3 tokens de la
+    même chaîne et de taille proche, tirés au hasard au même moment : le marché du jour s'annule."""
+    now = time.time()
+    vu = st.get("jumeaux_w_vu", now - 900)
+    nouveaux = [s for s in pf["signaux"] if s["ts"] > vu and not s.get("trop_tard") and s.get("mcap")]
+    st["jumeaux_w_vu"] = max([vu] + [s["ts"] for s in pf["signaux"]])
+    for s in nouveaux:
+        pool = []
+        for k, e in sv["tokens"].items():
+            if e.get("chain") != s["chain"] or k == s["key"] or e.get("mort") or not e.get("serie"):
+                continue
+            p = e["serie"][-1]
+            if now - p[0] <= 3600 and p[1] and s["mcap"] / 2 <= p[2] <= s["mcap"] * 2:
+                pool.append((k, e, p))
+        random.shuffle(pool)
+        for k, e, p in pool[:JUMEAUX_WALLETS]:
+            st["alerts"].append({"ts": now, "type": "jumeau_wallets", "zid": int(s["ts"]), "key": k,
+                                 "symbol": e.get("symbol"), "chain": e["chain"], "address": e["address"],
+                                 "price": p[1], "mcap": p[2], "url": e.get("url"), "observation": True})
+            e["garder_jusqua"] = max(e.get("garder_jusqua", 0), now + suivi.SUIVI_JOURS * 86400)
+    if nouveaux:
+        print(f"jumeaux des wallets gagnants : {len(nouveaux)} signal(s)")
+
+
+def duels(signaux, jumeaux, cle_signal):
+    """Écarts signal − moyenne de ses jumeaux (même identifiant de tirage)."""
+    par = {}
+    for a in jumeaux:
+        par.setdefault(str(a.get("zid")), []).append(suivi.resultat_sim_net(a))
+    return [suivi.resultat_sim_net(z) - sum(par[cle_signal(z)]) / len(par[cle_signal(z)])
+            for z in signaux if par.get(cle_signal(z))]
 
 
 # ---------------------------------------------------------------- Survivants
@@ -1114,8 +1162,15 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         if avec and sans:
             lignes.append(f"   dont qui passent les filtres d'évitement : {len(sans)} ({moy(sans) * 100:+.0f} %) · "
                           f"écartés par ces filtres : {len(avec)} ({moy(avec) * 100:+.0f} %)")
-    lignes += strat([s for s in signaux if not s["trop_tard"] and s["ts"] >= SMART_STRICT_DEPUIS],
-                    "🐋 3 wallets gagnants sur le même token")
+    w_ok = [s for s in signaux if not s["trop_tard"] and s["ts"] >= SMART_STRICT_DEPUIS]
+    n_rh = sum(1 for s in w_ok if s["chain"] == "robinhood")
+    lignes += strat(w_ok, "🐋 3 wallets gagnants sur le même token" + (f" (dont {n_rh} sur Robinhood Chain)" if n_rh else ""))
+    jw = [a for a in alertes if a.get("type") == "jumeau_wallets"]
+    ec = duels(w_ok, jw, lambda z: str(int(z["ts"])))
+    if ec:
+        lignes.append(f"   👯 contre leurs jumeaux (3 tokens de la même chaîne au hasard, au même moment) : {len(ec)} duel(s) · "
+                      f"écart moyen <b>{sum(ec) / len(ec) * 100:+.0f} points</b> · médian {statistics.median(ec) * 100:+.0f} · "
+                      f"devant {sum(e > 0 for e in ec)} fois sur {len(ec)}")
     jetes = [a for a in alertes if a.get("type") == "attente_jete"]
     if jetes:
         par = {}

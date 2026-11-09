@@ -68,6 +68,7 @@ SECU_REFUS_H = 6              # 06/11 : la plupart des candidats échouent toujo
 RECRUTEMENT = True
 RECRUTE_TOUTES_MIN = 60
 RECRUTE_PLACE = 200           # on laisse toujours 200 places du suivi aux tokens jeunes
+RECRUTE_GARDE_H = 48          # une recrue reste suivie 2 jours après sa dernière apparition dans les listes
 JUP_TOKENS = "https://lite-api.jup.ag/tokens/v2"
 RECRUTE_LISTES = [(c, i) for c in ("toptraded", "toporganicscore", "toptrending") for i in ("1h", "6h", "24h")]
 TEMOINS_APPARIES = 3          # 05/11 : pour chaque zone, 3 tokens tirés au hasard AU MÊME MOMENT

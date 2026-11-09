@@ -21,7 +21,8 @@ import outils as v
 
 FICHIER = Path("alertes/suivi.json")
 RELEVE_MIN = 30               # un relevé de prix toutes les 30 min
-SUIVI_MAX = 1500              # nombre max de tokens suivis (500 sur GitHub ; saturé à 496-500 le 05/11)
+SUIVI_MAX = 2500              # tokens VIVANTS suivis au plus (09/11 : 1 500 atteints, dont 630 morts gardés
+                              # pour leur historique ; les nouveaux tokens, Robinhood surtout, n'entraient plus)
 SUIVI_JOURS = 7
 ENTREE_LIQ_MIN = 15_000       # pour entrer dans le suivi
 ENTREE_MCAP_MIN = 60_000
@@ -85,13 +86,18 @@ def _point(t, now):
     return [round(now), float(f"{t['price']:.6g}"), round(t["mcap"]), round(t["liq"])]
 
 
-def ajouter(s, t, garder=False):
+def vivants(s):
+    return sum(1 for e in s["tokens"].values() if not e.get("mort"))
+
+
+def ajouter(s, t, garder=False, n_vivants=None):
     """Ajoute un token au suivi (garder=True : token alerté, suivi 7 jours quoi qu'il arrive)."""
     now = time.time()
     e = s["tokens"].get(t["key"])
     if e is None:
+        n = vivants(s) if n_vivants is None else n_vivants
         if not garder and (t["age_h"] > SUIVI_JOURS * 24 or t["liq"] < ENTREE_LIQ_MIN
-                           or t["mcap"] < ENTREE_MCAP_MIN or len(s["tokens"]) >= SUIVI_MAX
+                           or t["mcap"] < ENTREE_MCAP_MIN or n >= SUIVI_MAX
                            or not t["price"]):
             return None
         e = s["tokens"][t["key"]] = {
@@ -105,8 +111,11 @@ def ajouter(s, t, garder=False):
 
 
 def ajouter_lot(s, tokens):
+    n = vivants(s)
     for t in tokens:
-        ajouter(s, t)
+        nouveau = t["key"] not in s["tokens"]
+        if ajouter(s, t, n_vivants=n) is not None and nouveau:
+            n += 1
 
 
 def plus_haut_apres(e, ts):
