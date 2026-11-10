@@ -133,6 +133,14 @@ def tick(st):
         elif now - pos["ts"] >= DUREE_H * 3600:
             raison = "12 h écoulées"
         pos["liq0"] = max(pos["liq0"] or 0, liq)
+        if raison in ("objectif x1,5", "stop −30 %"):
+            # 10/11 : Macca « x5,5 » affiché une minute (prix et mcap faux ensemble), vendu en vrai à +5 %.
+            # Le vrai prix de Jupiter doit confirmer, comme le ferait un vendeur automatique réel.
+            q = devis(pos["address"], SOL, pos["quantite"])
+            xr = ((q / 1e9 - FRAIS_RESEAU_SOL) / pos["sol_depense"]) if q else None
+            if xr is not None and ((raison == "objectif x1,5" and xr < 1.2) or (raison == "stop −30 %" and xr > 0.85)):
+                pos["non_confirmes"] = pos.get("non_confirmes", 0) + 1
+                continue
         if raison:
             fermer(fo, k, pos, raison, p)
 
@@ -151,7 +159,8 @@ def bilan(st):
         m = sum(x["res"] for x in g) / len(g)
         # écart réel − affiché, sur les ordres dont le prix affiché est plausible (un prix DexScreener
         # aberrant donnait −196 081 points le 07/11)
-        ec = [x["res"] - x["papier"] for x in g if x.get("papier") is not None and -1 <= x["papier"] <= 9]
+        ec = [x["res"] - x["papier"] for x in g if x.get("papier") is not None and -1 <= x["papier"] <= 9
+              and abs(x["res"] - x["papier"]) <= 0.5]     # plus de 50 points d'écart : prix affiché faux
         ecart = sum(ec) / len(ec) * 100 if ec else 0
         raisons = {}
         for x in g:
