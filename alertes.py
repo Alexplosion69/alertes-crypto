@@ -156,8 +156,8 @@ def save_state(st):
                           if now - ts < NARR_REALERTE_H * 3600}
     st["surv_alerted"] = {k: ts for k, ts in st.get("surv_alerted", {}).items()
                           if now - ts < SURV_REALERTE_H * 3600}
-    v.archiver("alertes", [a for a in st["alerts"] if now - a["ts"] >= 30 * 86400])
-    st["alerts"] = [a for a in st["alerts"] if now - a["ts"] < 30 * 86400]
+    v.archiver("alertes", [a for a in st["alerts"] if now - a["ts"] >= 45 * 86400])
+    st["alerts"] = [a for a in st["alerts"] if now - a["ts"] < 45 * 86400]   # 45 j : le 10/12 compte depuis le 05/11
     STATE_FILE.parent.mkdir(exist_ok=True)
     v.ecrire_json(STATE_FILE, st)
 
@@ -666,6 +666,7 @@ def cycle(st, sent_this_hour, sv, pf):
 
 
 JUMEAUX_WALLETS = 3
+JUMEAUX_W_DEPUIS = 1794225600      # 09/11/2026 13 h (Paris) : premiers jumeaux des wallets gagnants
 
 
 def jumeaux_wallets(st, sv, pf):
@@ -915,11 +916,51 @@ def bilan_course(st):
                       f"{len(ecarts)} duel(s) · écart moyen <b>{sum(ecarts) / len(ecarts) * 100:+.0f} points</b> · "
                       f"médian {statistics.median(ecarts) * 100:+.0f} · Repli devant {sum(e > 0 for e in ecarts)} "
                       f"fois sur {len(ecarts)}")
+        lignes.append(criteres(ecarts, [suivi.resultat_sim_net(z) for z in zones if par_zid.get(str(z.get("zid")))]))
     else:
         lignes.append("👯 Repli contre ses jumeaux (3 tokens au hasard tirés au même moment) : pas encore de duel")
     lignes.append(f"🗓️ Depuis le 05/11 : {len(zones)} signal(s) Repli, rythme {rythme:.1f} par jour → environ "
                   f"{prevu:.0f} à la grande revue du 22/11, {prevu2:.0f} au deuxième point du 10/12 "
                   f"(il en faut au moins 30 pour conclure)")
+    return lignes
+
+
+def criteres(ec, resultats, n_min=30):
+    """Les critères validés avant les résultats (05/11 pour Repli, 10/11 pour les wallets gagnants),
+    cochés un par un : ✅ atteint, ❌ pas encore."""
+    def m(x):
+        return sum(x) / len(x) if x else 0
+    n, ok = len(ec), (lambda b: "✅" if b else "❌")
+    r = sorted(resultats)
+    parts = [f"{ok(n >= n_min)} {n}/{n_min} duels", f"{ok(m(ec) >= 0.10)} avance {m(ec) * 100:+.0f} pts (+10 exigés)"]
+    if n:
+        dev = sum(e > 0 for e in ec) / n
+        parts.append(f"{ok(dev > 0.55)} devant {dev * 100:.0f} % des duels (plus de 55 %)")
+    if len(r) > 3:
+        sans3 = (sum(r) - sum(r[-3:])) / (len(r) - 3)
+        parts.append(f"{ok(sans3 > 0)} sans les 3 meilleurs {sans3 * 100:+.0f} %")
+    if n >= 4:
+        a, b = m(ec[:n // 2]), m(ec[n // 2:])
+        parts.append(f"{ok(a > 0 and b > 0)} moitiés {a * 100:+.0f} / {b * 100:+.0f} pts")
+    return "   📏 Critères : " + " · ".join(parts)
+
+
+def bilan_wallets(st, pf, strat):
+    """La piste des wallets gagnants (Robinhood Chain surtout), jugée contre ses jumeaux depuis le 09/11."""
+    now = time.time()
+    w7 = [s for s in pf["signaux"] if now - s["ts"] < 7 * 86400 and not s["trop_tard"] and s["ts"] >= SMART_STRICT_DEPUIS]
+    n_rh = sum(1 for s in w7 if s["chain"] == "robinhood")
+    lignes = strat(w7, "🐋 Signaux « 3 wallets gagnants ou plus achètent le même token », 7 jours"
+                   + (f" (dont {n_rh} sur Robinhood Chain)" if n_rh else ""))
+    w = [s for s in pf["signaux"] if not s["trop_tard"] and s["ts"] >= JUMEAUX_W_DEPUIS]
+    jw = [a for a in st["alerts"] if a.get("type") == "jumeau_wallets"]
+    ec = duels(w, jw, lambda z: str(int(z["ts"])))
+    if ec:
+        lignes.append(f"👯 <b>Contre leurs jumeaux</b> (3 tokens de la même chaîne et de taille proche, au même moment, "
+                      f"depuis le 09/11) : {len(ec)} duel(s) · écart moyen <b>{sum(ec) / len(ec) * 100:+.0f} points</b> · "
+                      f"médian {statistics.median(ec) * 100:+.0f} · devant {sum(e > 0 for e in ec)} fois sur {len(ec)}")
+        lignes.append(criteres(ec, [suivi.resultat_sim_net(z) for z in w if any(str(a.get("zid")) == str(int(z["ts"])) for a in jw)]))
+    lignes.append("<i>Avant tout euro réel : trouver comment vérifier la sécurité des tokens de Robinhood Chain.</i>")
     return lignes
 
 
@@ -1116,7 +1157,10 @@ def bilan_quotidien(st, sv, pf, forcer=False):
                       f"({len(att)} signaux contre {len(tem)} tirages)")
     lignes += bilan_course(st)
 
-    lignes += ["", "<b>② Les filtres trient-ils vraiment ?</b>"]
+    lignes += ["", "<b>② La piste des wallets gagnants</b> (surtout Robinhood Chain, critères validés le 10/11)"]
+    lignes += bilan_wallets(st, pf, strat)
+
+    lignes += ["", "<b>③ Les filtres trient-ils vraiment ?</b>"]
     # indices sur les signaux Repli (affichés et comptés, ce ne sont pas des filtres)
     indices = []
     p_hausse = [a for a in att if a.get("porteurs0") and a.get("porteurs") and a["porteurs"] > a["porteurs0"]]
@@ -1149,11 +1193,11 @@ def bilan_quotidien(st, sv, pf, forcer=False):
                   "(compté depuis le 05/11) :")
     lignes += bilan_tests_a_blanc(st, detail)
 
-    lignes += ["", "<b>③ Les essais pour plus tard</b> (rien d'engagé)"]
+    lignes += ["", "<b>④ Les essais pour plus tard</b> (rien d'engagé)"]
     lignes += faux_ordres.bilan(st)
     lignes += meteora_sim.bilan(st)
 
-    lignes += ["", "<b>④ Anciennes alertes</b> (abandonnées, encore mesurées)"]
+    lignes += ["", "<b>⑤ Anciennes alertes</b> (abandonnées, encore mesurées)"]
     mom = [a for a in alertes if a.get("type") == "momentum" and a["chain"] not in v.CHAINES_OBS]
     lignes += strat(mom, "🚀 Momentum")
     if mom:
@@ -1162,15 +1206,6 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         if avec and sans:
             lignes.append(f"   dont qui passent les filtres d'évitement : {len(sans)} ({moy(sans) * 100:+.0f} %) · "
                           f"écartés par ces filtres : {len(avec)} ({moy(avec) * 100:+.0f} %)")
-    w_ok = [s for s in signaux if not s["trop_tard"] and s["ts"] >= SMART_STRICT_DEPUIS]
-    n_rh = sum(1 for s in w_ok if s["chain"] == "robinhood")
-    lignes += strat(w_ok, "🐋 3 wallets gagnants sur le même token" + (f" (dont {n_rh} sur Robinhood Chain)" if n_rh else ""))
-    jw = [a for a in alertes if a.get("type") == "jumeau_wallets"]
-    ec = duels(w_ok, jw, lambda z: str(int(z["ts"])))
-    if ec:
-        lignes.append(f"   👯 contre leurs jumeaux (3 tokens de la même chaîne au hasard, au même moment) : {len(ec)} duel(s) · "
-                      f"écart moyen <b>{sum(ec) / len(ec) * 100:+.0f} points</b> · médian {statistics.median(ec) * 100:+.0f} · "
-                      f"devant {sum(e > 0 for e in ec)} fois sur {len(ec)}")
     jetes = [a for a in alertes if a.get("type") == "attente_jete"]
     if jetes:
         par = {}
@@ -1187,7 +1222,7 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     pf_pos = positions.charger()
     j = positions.journal_txt(pf_pos, jours=7)
     if j or pf_pos["positions"]:
-        lignes += ["", "<b>⑤ Tes trades</b>", (j or "📒 Aucun trade fermé cette semaine")
+        lignes += ["", "<b>⑥ Tes trades</b>", (j or "📒 Aucun trade fermé cette semaine")
                    + f" · {len(pf_pos['positions'])} position(s) ouverte(s)"]
 
     recentes = sorted((a for a in alertes if now - a["ts"] < 86400 and a.get("type") in ("attente", "temoin")),
