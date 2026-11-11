@@ -10,7 +10,7 @@
 2026-10-31 | Halloween | halloween, halloweek, spooky, pumpkin
 2026-11-03 | Élections de mi-mandat aux États-Unis | midterms, election, vote
 2026-11-15 | Solana Breakpoint (Londres) | breakpoint
-2026-11-19 | Sortie de GTA 6 | gta6, gta, vicecity, dacity, ttwo
+2026-11-19 | Sortie de GTA 6 | gta6, gta, vicecity, dacity, ttwo, leonida
 2026-11-26 | Thanksgiving | thanksgiving, turkey
 2026-11-27 | Black Friday | blackfriday, black friday
 2026-12-03 | AG des actionnaires Tesla (22 h, en direct) | tesla, optimus, roadster, cybercab
