@@ -263,10 +263,12 @@ def detecter(pf, k, e, o, verifier, envoyer):
             f"({(prix / entree - 1) * 100:+.0f} %)",
             f"↩️ {vendu} d'entre eux ont déjà vendu une partie" if vendu else "↩️ aucun n'a encore vendu",
             (f"🛡️ ✅ {html.escape(sec_txt)}" if ok else
-             "🛡️ ⚠️ GoPlus n'a pas encore analysé ce token : <b>teste d'abord la revente</b> (achète 2 €, revends 1 €)"),
+             "🛡️ ⚠️ GoPlus n'a pas encore analysé ce token : <b>revends 1 € juste après ton achat</b> pour vérifier "
+             "que la revente passe"),
             f"<a href=\"{e.get('url')}\">Voir sur DexScreener</a> · suivi : <code>/achat {e['address']}</code>",
-            "<i>Piste validée contre le hasard le 12/11 (60 duels, +37 points), encore en test : 2 € par signal, "
-            "pas un conseil. Meilleurs résultats entre 50 et 100 k$ de mcap.</i>",
+            "<i>Piste validée contre le hasard le 12/11 (60 duels, +37 points), encore en test, pas un conseil. "
+            "5 € comme dans la simulation (à 2 €, les 0,10 € de frais Fomo par ordre mangent 10 %). "
+            "Meilleurs résultats entre 50 et 100 k$ de mcap.</i>",
         ]
         sig["envoye"] = bool(envoyer("\n".join(lignes)))
     pf["signaux"].append(sig)
