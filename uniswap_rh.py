@@ -26,7 +26,7 @@ def rpc(methode, params):
         return None, "réseau"
     if "error" in d:
         e = d["error"]
-        return None, (str(e.get("message", ""))[:80] + (" " + str(e.get("data"))[:140] if e.get("data") else ""))
+        return None, (str(e.get("message", ""))[:80] + (" " + str(e.get("data"))[:400] if e.get("data") else ""))
     return d.get("result"), None
 
 
