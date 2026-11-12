@@ -257,19 +257,22 @@ def detecter(pf, k, e, o, verifier, envoyer):
            "securite_ok": ok, "securite": sec_txt[:120], "envoye": False}
     if EN_DIRECT and not trop_tard and len(presents) >= EN_DIRECT_MIN_WALLETS and (ok or inconnue):
         chaine = {"robinhood": "Robinhood Chain", "bsc": "BSC", "base": "Base"}.get(e["chain"], e["chain"])
-        # 12/11 : aucun service de devis ne cote ces tokens ; la preuve qu'ils se revendent, ce sont les
-        # ventes des autres traders sur la dernière heure
-        tx = {}
-        for pa in v.get_json(f"{v.DS}/tokens/v1/{e['chain']}/{e['address']}") or []:
-            if (pa.get("liquidity") or {}).get("usd", 0) >= (tx.get("liq") or 0):
-                tx = {"liq": (pa.get("liquidity") or {}).get("usd", 0), **((pa.get("txns") or {}).get("h1") or {})}
-        ventes = tx.get("sells")
+        # 12/11 : la preuve qu'un token se revend, ce sont les ventes des autres traders sur la dernière heure.
+        # DexScreener ne compte pas les échanges de ces pools (toujours 0) : on lit ceux de GeckoTerminal.
+        tx, ventes = {}, None
+        d = v.gt_get(f"/networks/{v.GT_NETWORKS[e['chain']]}/pools/{e['pair']}/trades") if e.get("pair") else None
+        if d:
+            recents = [it.get("attributes") or {} for it in d.get("data") or []]
+            recents = [a for a in recents if (_ts(a.get("block_timestamp")) or 0) >= now - 3600]
+            vendeurs = {a.get("tx_from_address") for a in recents if a.get("kind") == "sell"}
+            tx = {"buys": sum(1 for a in recents if a.get("kind") == "buy")}
+            ventes = len(vendeurs)
         lignes = [
             f"🐋 <b>${html.escape(str(e['symbol']))}</b> ({chaine}) — {len(presents)} wallets gagnants ont acheté",
             f"💰 leur entrée moyenne : mcap {fmt_usd(mcap_entree)} · maintenant <b>{fmt_usd(mcap)}</b> "
             f"({(prix / entree - 1) * 100:+.0f} %)",
             f"↩️ {vendu} d'entre eux ont déjà vendu une partie" if vendu else "↩️ aucun n'a encore vendu",
-            (f"🔁 sur 1 h : {tx.get('buys', 0)} achats, {ventes} ventes (d'autres arrivent à revendre)" if ventes
+            (f"🔁 sur 1 h : {tx.get('buys', 0)} achats, {ventes} vendeurs différents (d'autres arrivent à revendre)" if ventes
              else "🔁 ⚠️ aucune vente sur la dernière heure : peut-être impossible à revendre, prudence"
              if ventes == 0 else ""),
             (f"🛡️ ✅ {html.escape(sec_txt)}" if ok else
