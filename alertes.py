@@ -1070,7 +1070,24 @@ def bilan_quotidien(st, sv, pf, forcer=False):
             a["last"], a["last_mcap"] = t["price"], t["mcap"]
             a["peak"] = max(a.get("peak") or a["price"], t["price"])
         elif a["key"] in manquants and frais:
-            a["mort"] = True                       # disparu de DexScreener
+            a["mort"] = True                       # disparu de DexScreener : invendable, le reste vaut 0
+            a["mort_zero"] = True
+            if a.get("sim") and a.get("price"):
+                suivi.simuler(a, 0.0, fin=True)
+    # 12/11 : Robinhood Chain, tokens hors suivi encore affichés par DexScreener : pool vidé ? (blockchain)
+    for a in alertes + signaux:
+        t = frais.get(a["key"])
+        if not t or a.get("chain") != "robinhood" or a.get("mort") or not t.get("pair"):
+            continue
+        try:
+            import uniswap_rh
+            if uniswap_rh.mort_on_chain(t["pair"]) is True:
+                a["mort"] = a["mort_zero"] = True
+                if a.get("sim") and a.get("price"):
+                    suivi.simuler(a, 0.0, fin=True)
+        except Exception as ex:
+            print(f"[warn] bilan, vérification on-chain : {type(ex).__name__}")
+            break
     # âge du token au moment de l'alerte : noté seulement depuis le 20/10. Pour les alertes plus
     # anciennes, on le recalcule (date de création du token connue par le suivi ou DexScreener).
     for a in alertes:
