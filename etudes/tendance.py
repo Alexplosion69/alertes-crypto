@@ -35,7 +35,7 @@ def binance(sym):
 
 def yahoo(sym):
     r = requests.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}", timeout=30, headers=UA,
-                     params={"range": "max", "interval": "1d"})
+                     params={"period1": 1325376000, "period2": int(time.time()), "interval": "1d"})
     res = r.json()["chart"]["result"][0]
     q = res["indicators"]["quote"][0]
     adj = res["indicators"].get("adjclose", [{}])[0].get("adjclose") or q["close"]
