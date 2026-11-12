@@ -1178,10 +1178,12 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     if indices:
         lignes.append("🔎 Indices sur les signaux Repli :")
         lignes += indices
-    refus_c = [a for a in alertes if a.get("type") == "attente_jete" and a.get("etape") == "Claude"]
+    refus_c = ([a for a in alertes if a.get("type") == "attente_jete" and a.get("etape") == "Claude"]
+               + [a for a in att if a.get("videur") == "non"])
+    acc_c = [a for a in att if a.get("videur") != "non"]
     if refus_c:
-        lignes.append("🤖 Filtre Claude sur les candidats Repli (les refusés sont suivis quand même) :")
-        lignes += detail(att, "acceptés (ce sont les signaux Repli)") + detail(refus_c, "refusés")
+        lignes.append("🤖 Filtre Claude sur les candidats Repli (depuis le 12/11 il ne bloque plus, il donne son avis) :")
+        lignes += detail(acc_c, "il a dit oui") + detail(refus_c, "il a dit non")
     # ton tri (boutons « j'ai acheté / pas pris ») : en privé, seulement sur Telegram
     choix = (positions.charger().get("choix_zones") or {})
     pris = [a for a in att if choix.get(str(a.get("zid"))) == "achete"]

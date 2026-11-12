@@ -59,6 +59,7 @@ CLAUDE_MODELE = os.getenv("CLAUDE_MODEL_VIDEUR", "claude-haiku-5-5")
 # --- confirmations du repli (observation : affichées et comptées dans le bilan, pas un filtre)
 SMART_TRADES_PAGE = True      # lit les derniers échanges du pool (1 appel GeckoTerminal par zone)
 # --- témoin
+FILTRE_CLAUDE_BLOQUE = False   # 12/11 : indice seulement (voir plus bas)
 TEMOIN_TOUTES_MIN = 60
 TIRAGE_ESSAIS = 12            # vérifications de sécurité nouvelles au plus par tirage (les refus sont gardés 6 h)
 SECU_REFUS_H = 6              # 06/11 : la plupart des candidats échouent toujours pour la même raison
@@ -595,7 +596,10 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset())
             _noter(st, t, "attente_jete", etape="concentration", raison=st_txt[:80])
             continue
         ok_c, raison_c = videur_claude(t, f, sec_txt, st_txt)
-        if ok_c is False:
+        # 12/11 (choix d'Alex) : le Filtre Claude ne bloque plus. Il ne triait pas (acceptés −15 %, refusés
+        # −12 % ; au test à blanc ses « oui » faisaient pire que ses « non ») et bloquait 43 candidats sur 52.
+        # Son avis est gardé avec le signal (« videur ») pour continuer à comparer.
+        if FILTRE_CLAUDE_BLOQUE and ok_c is False:
             _noter(st, t, "attente_jete", etape="Claude", raison=raison_c[:120])
             continue
         # confirmations (observation) : porteurs depuis l'entrée en liste, smart wallets pendant le repli
@@ -630,7 +634,7 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset())
         envoye = bool(EN_DIRECT and _envoyer_zone("\n".join(x for x in lignes if x), zid, t["address"]))
         analyste_claude(t, f, zid, lignes)
         _noter(st, t, "attente", envoye=envoye, hausse=round(f["hausse"], 2), repli_pct=round(f["repli"] * 100),
-               videur=("oui" if ok_c else "non configuré"), raison_claude=raison_c[:120], zid=zid,
+               videur=({True: "oui", False: "non"}.get(ok_c, "non configuré")), raison_claude=raison_c[:120], zid=zid,
                porteurs0=p0, porteurs=p1, **conf, **infos_gt(t))
         ajouter_suivi(t)
         try:

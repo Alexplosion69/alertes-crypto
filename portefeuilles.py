@@ -21,8 +21,10 @@ True quand le bilan montre que ça marche.
 
 Tu peux ajouter des wallets à la main dans portefeuilles_manuels.txt (toujours considérés smart).
 """
+import html
 import json
 import math
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -33,7 +35,11 @@ import suivi
 FICHIER = Path("alertes/portefeuilles.json")
 MANUELS = Path("portefeuilles_manuels.txt")
 
-EN_DIRECT = False             # False = observation (bilan quotidien seulement)
+EN_DIRECT = True              # 12/11 : critères passés (60 duels, +37 points contre les jumeaux) -> alertes
+EN_DIRECT_MIN_WALLETS = 5     # seulement quand 5 wallets gagnants ou plus ont acheté (choix d'Alex, ~12/jour)
+# Refus de sécurité qui veulent dire « on ne sait pas » (token trop récent pour GoPlus) : l'alerte part,
+# avec un avertissement. Les vrais dangers (piège, taxe, liquidité retirable…) bloquent l'alerte.
+SECU_INCONNUE = ("taxes inconnues", "indisponible", "répartition des détenteurs inconnue")
 TRADES_PAR_CYCLE = 8          # pools lus par cycle (GeckoTerminal gratuit : on reste raisonnable)
 COLLECTE_AGE_MAX_H = 24       # on lit les acheteurs des tokens de moins de 24 h
 COLLECTE_LIQ_MIN = 15_000
@@ -243,20 +249,24 @@ def detecter(pf, k, e, o, verifier, envoyer):
         n, bons, _ = pf["w"].get(v.key_of(o["chain"], w), [0, 0, 0])
         records.append(f"{bons}/{n}" if n else "manuel")
     vendu = sum(1 for w in presents if o["sells"].get(w))
+    sec_txt = re.sub(r"<[^>]+>", "", str(sec)).split("\n")[0]
+    inconnue = (not ok) and any(m in sec_txt for m in SECU_INCONNUE)
     sig = {"ts": now, "key": k, "symbol": e["symbol"], "chain": e["chain"],
            "address": e["address"], "url": e.get("url"), "price": prix, "mcap": mcap,
            "wallets": len(presents), "entree_moy": entree, "trop_tard": trop_tard,
-           "securite_ok": ok, "envoye": False}
-    if EN_DIRECT and ok and not trop_tard:
+           "securite_ok": ok, "securite": sec_txt[:120], "envoye": False}
+    if EN_DIRECT and not trop_tard and len(presents) >= EN_DIRECT_MIN_WALLETS and (ok or inconnue):
+        chaine = {"robinhood": "Robinhood Chain", "bsc": "BSC", "base": "Base"}.get(e["chain"], e["chain"])
         lignes = [
-            f"🐋 <b>${e['symbol']}</b> ({e['chain']}) — {len(presents)} smart wallets ont acheté",
-            f"Leurs bons coups (x3 ou plus) : {', '.join(records)}",
-            f"💰 leur entrée moyenne : mcap {fmt_usd(mcap_entree)} · maintenant {fmt_usd(mcap)} "
+            f"🐋 <b>${html.escape(str(e['symbol']))}</b> ({chaine}) — {len(presents)} wallets gagnants ont acheté",
+            f"💰 leur entrée moyenne : mcap {fmt_usd(mcap_entree)} · maintenant <b>{fmt_usd(mcap)}</b> "
             f"({(prix / entree - 1) * 100:+.0f} %)",
             f"↩️ {vendu} d'entre eux ont déjà vendu une partie" if vendu else "↩️ aucun n'a encore vendu",
-            f"🛡️ {sec}",
-            f"<a href=\"{e.get('url')}\">Voir sur DexScreener</a>",
-            "<i>Signal automatique, pas un conseil. Petite mise seulement.</i>",
+            (f"🛡️ ✅ {html.escape(sec_txt)}" if ok else
+             "🛡️ ⚠️ GoPlus n'a pas encore analysé ce token : <b>teste d'abord la revente</b> (achète 2 €, revends 1 €)"),
+            f"<a href=\"{e.get('url')}\">Voir sur DexScreener</a> · suivi : <code>/achat {e['address']}</code>",
+            "<i>Piste validée contre le hasard le 12/11 (60 duels, +37 points), encore en test : 2 € par signal, "
+            "pas un conseil. Meilleurs résultats entre 50 et 100 k$ de mcap.</i>",
         ]
         sig["envoye"] = bool(envoyer("\n".join(lignes)))
     pf["signaux"].append(sig)
