@@ -26,3 +26,12 @@ for s in sig:
     if d:
         r = F.devis(s["address"], F.ETH, d[0])
         print(f"   revente immédiate : {'OK, ' + format((r[0] - r[1]) / wei - 1, '+.1%') if r else 'AUCUN CHEMIN'}")
+import requests  # noqa: E402
+s = sig[-1]
+for cid in (4663, 46630, 4665):
+    r = requests.get(F.API, timeout=20, params={"chainId": cid, "sellToken": F.ETH, "buyToken": s["address"],
+                                                "sellAmount": str(int(2e15))},
+                     headers={"0x-api-key": F.cle(), "0x-version": "v2"})
+    print("chaîne", cid, "→", r.status_code, r.text[:300].replace(F.cle(), "***"))
+r = requests.get("https://api.0x.org/swap/chains", headers={"0x-api-key": F.cle(), "0x-version": "v2"}, timeout=20)
+print("chaînes 0x :", r.status_code, r.text[:1500].replace(F.cle(), "***"))
