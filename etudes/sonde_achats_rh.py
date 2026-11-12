@@ -17,13 +17,26 @@ CONNUS = {u.POOL_MANAGER: "Uniswap v4 PoolManager", u.POSITION_MANAGER: "Uniswap
 bloc, err = u.rpc("eth_blockNumber", [])
 bloc = int(bloc, 16)
 print("bloc", bloc)
+b1, _ = u.rpc("eth_getBlockByNumber", [hex(bloc), False])
+b0, _ = u.rpc("eth_getBlockByNumber", [hex(bloc - 20_000), False])
+if b1 and b0:
+    print(f"20 000 blocs = {(int(b1['timestamp'], 16) - int(b0['timestamp'], 16)) / 60:.0f} min")
+import outils as v  # noqa: E402
 pf = portefeuilles.charger()
-sig = [s for s in pf["signaux"] if s["chain"] == "robinhood" and not s["trop_tard"] and s.get("wallets", 0) >= 5][-4:]
+cands = [s for s in pf["signaux"] if s["chain"] == "robinhood" and not s["trop_tard"]][-40:]
+actifs = []
+for i in range(0, len(cands), 30):
+    for p_ in v.get_json(f"{v.DS}/tokens/v1/robinhood/{','.join(c['address'] for c in cands[i:i + 30])}") or []:
+        h1 = (p_.get("txns") or {}).get("h1") or {}
+        actifs.append((h1.get("buys", 0) + h1.get("sells", 0), p_["baseToken"]["address"], p_["baseToken"]["symbol"], p_.get("pairAddress")))
+actifs.sort(reverse=True)
+print("Les plus échangés sur 1 h :", [(a[2], a[0]) for a in actifs[:5]])
+sig = [{"address": a[1], "symbol": a[2]} for a in actifs[:4] if a[0] > 0]
 appeles, emetteurs, methodes, pools = collections.Counter(), collections.Counter(), collections.Counter(), collections.Counter()
 for s in sig:
     tok = s["address"].lower()
     logs = None
-    for fenetre in (20_000, 5_000, 1_000):
+    for fenetre in (20_000, 5_000):
         logs, err = u.rpc("eth_getLogs", [{"address": tok, "fromBlock": hex(bloc - fenetre), "toBlock": hex(bloc),
                                            "topics": [TRANSFER]}])
         if logs is not None:
