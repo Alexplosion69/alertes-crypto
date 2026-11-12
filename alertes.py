@@ -31,6 +31,7 @@ import requests
 import attente
 import meteora_sim
 import faux_ordres
+import faux_ordres_rh
 import baleines
 import devs
 import evenements
@@ -642,6 +643,10 @@ def cycle(st, sent_this_hour, sv, pf):
         faux_ordres.tick(st)
     except Exception as e:
         print(f"[warn] faux ordres : {type(e).__name__}")
+    try:
+        faux_ordres_rh.tick(st, pf)
+    except Exception as e:
+        print(f"[warn] faux ordres Robinhood : {type(e).__name__}")
 
     def envoyer(texte):
         if sent_this_hour[0] >= MAX_ALERTES_HEURE:
@@ -1197,6 +1202,7 @@ def bilan_quotidien(st, sv, pf, forcer=False):
 
     lignes += ["", "<b>④ Les essais pour plus tard</b> (rien d'engagé)"]
     lignes += faux_ordres.bilan(st)
+    lignes += faux_ordres_rh.bilan(st)
     lignes += meteora_sim.bilan(st)
 
     lignes += ["", "<b>⑤ Anciennes alertes</b> (abandonnées, encore mesurées)"]
@@ -1322,6 +1328,10 @@ def main(mode):
                     faux_ordres.tick(st)
                 except Exception as e:
                     print(f"[warn] faux ordres : {type(e).__name__}")
+                try:
+                    faux_ordres_rh.tick(st, pf)
+                except Exception as e:
+                    print(f"[warn] faux ordres Robinhood : {type(e).__name__}")
             if mode != "loop" or time.time() - t0 >= CYCLE_MIN * 60 - 15:
                 break
             time.sleep(15)
