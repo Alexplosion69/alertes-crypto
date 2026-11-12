@@ -28,6 +28,7 @@ ENTREE_LIQ_MIN = 15_000       # pour entrer dans le suivi
 ENTREE_MCAP_MIN = 60_000
 MORT_LIQ = 5_000              # liquidité sous 5 k$ = mort
 MORT_CHUTE = 0.10             # prix sous 10 % de son plus haut (après 12 h) = mort
+ROBINHOOD_VERIF_MAX = 250     # contrôles on-chain par relevé (RPC public de Robinhood Chain)
 
 # --- Alerte « survivant »
 SURV_AGE_MIN_H, SURV_AGE_MAX_H = 12, 168     # entre 12 h et 7 jours
@@ -134,7 +135,7 @@ def rafraichir(s, listes_suivies):
              for k, e in s["tokens"].items() if not e.get("mort")}
     frais = v.enrich(cands)
     by_key = {t["key"]: t for t in frais}
-    morts, fins = [], []
+    morts, fins, a_zero = [], [], set()      # a_zero : morts invendables (disparus, liquidité partie)
     for k, e in s["tokens"].items():
         if e.get("mort"):
             if now > e.get("garder_jusqua", 0):       # 05/11 : fin de ses 7 jours → archives (avant : gardé
@@ -145,6 +146,7 @@ def rafraichir(s, listes_suivies):
             e["absent"] = e.get("absent", 0) + 1
             if e["absent"] >= 3:                      # disparu de DexScreener 3 relevés de suite
                 morts.append(k)
+                a_zero.add(k)
             continue
         e["absent"] = 0
         e["serie"].append(_point(t, now))
@@ -153,6 +155,8 @@ def rafraichir(s, listes_suivies):
         e.update(pair=t.get("pair"), url=t.get("dexscreener"), symbol=t["symbol"])
         if t["liq"] < MORT_LIQ or (t["price"] < MORT_CHUTE * e["ath"] and now - e["created"] > 12 * 3600):
             morts.append(k)
+            if t["liq"] < MORT_LIQ:
+                a_zero.add(k)
         elif now - e["ajoute"] > SUIVI_JOURS * 86400 and now > e.get("garder_jusqua", 0):
             fins.append(k)
     # humeur du marché : médiane des variations des memecoins suivis
@@ -165,6 +169,22 @@ def rafraichir(s, listes_suivies):
         s["marche"] = {"med_6h": round(ch6[len(ch6) // 2], 1),
                        "med_24h": round(ch24[len(ch24) // 2], 1) if ch24 else 0.0,
                        "n": len(ch6), "ts": round(now)}
+    # 12/11 : sur Robinhood Chain, DexScreener garde le prix et la liquidité d'un pool vidé. Pour les tokens
+    # alertés, on vérifie sur la blockchain que le pool Uniswap v4 se revend encore.
+    a_verifier = {a["key"] for lst in listes_suivies for a in lst
+                  if a.get("chain") == "robinhood" and not a.get("mort") and now - a["ts"] <= SUIVI_JOURS * 86400}
+    for k in list(a_verifier)[:ROBINHOOD_VERIF_MAX]:
+        e = s["tokens"].get(k)
+        if not e or e.get("mort") or not e.get("pair") or k in morts:
+            continue
+        try:
+            import uniswap_rh
+            if uniswap_rh.mort_on_chain(e["pair"]) is True:
+                morts.append(k)
+                a_zero.add(k)
+        except Exception as ex:                 # le RPC public peut refuser : on réessaiera au relevé suivant
+            print(f"[warn] vérification on-chain : {type(ex).__name__}")
+            break
     # plus haut, prix actuel et gain simulé des alertes / signaux envoyés (pour le bilan)
     for lst in listes_suivies:
         for a in lst:
@@ -179,7 +199,11 @@ def rafraichir(s, listes_suivies):
                 simuler(a, t["price"] / a["price"])
             if a["key"] in morts:
                 a["mort"] = True
-                simuler(a, (a.get("last") or 0) / a["price"], fin=True)
+                if a["key"] in a_zero:          # invendable : le reste vaut 0, pas son dernier prix affiché
+                    a["mort_zero"] = True
+                    simuler(a, 0.0, fin=True)
+                else:
+                    simuler(a, (a.get("last") or 0) / a["price"], fin=True)
     return frais, morts, fins
 
 
@@ -243,6 +267,8 @@ def resultat_sim_net(a):
     if not s:
         return 0.0
     x = min((a.get("last") or a["price"]) / a["price"], X_MAX) if a.get("price") else 0
+    if a.get("mort_zero"):
+        x = 0.0
     frais = _frais(1.0)                                   # achat
     if s["moitie"]:
         frais += _frais(1.0)                              # moitié vendue à x2 (vaut 1 mise)
@@ -260,6 +286,8 @@ def resultat_sim(a):
     if not s:
         return 0.0
     x = min((a.get("last") or a["price"]) / a["price"], X_MAX) if a.get("price") else 0
+    if a.get("mort_zero"):
+        x = 0.0
     return round(s["cash"] + s["reste"] * x - 1, 2)
 
 

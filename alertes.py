@@ -670,6 +670,28 @@ def cycle(st, sent_this_hour, sv, pf):
         print(f"[warn] rejeu : {e!r}")
 
 
+def corriger_morts_robinhood(st, pf):
+    """12/11, une seule fois : les alertes et signaux de Robinhood Chain marqués morts avaient été « revendus »
+    à leur dernier prix affiché. Sur la blockchain, 38 des 39 tokens signalés étaient en fait invendables
+    (disparus ou pool vidé) : la moitié vendue à x2 reste acquise, le reste vaut 0."""
+    if st.get("correction_morts_rh"):
+        return
+    n = 0
+    for a in st["alerts"] + pf["signaux"]:
+        sim = a.get("sim")
+        if a.get("chain") != "robinhood" or not a.get("mort") or not sim or a.get("mort_zero"):
+            continue
+        if sim.get("moitie"):
+            sim["cash"] = 1.0
+        elif sim.get("cash", 0) > 0.5:          # pas un stop à −50 % : la vente « au dernier prix » n'a pas existé
+            sim["cash"] = 0.0
+        sim["reste"] = 0.0
+        a["mort_zero"] = True
+        n += 1
+    st["correction_morts_rh"] = time.time()
+    print(f"correction : {n} alerte(s) ou signal(aux) Robinhood morts revendus à 0")
+
+
 JUMEAUX_WALLETS = 3
 JUMEAUX_W_DEPUIS = 1794225600      # 09/11/2026 13 h (Paris) : premiers jumeaux des wallets gagnants
 
@@ -1284,6 +1306,7 @@ def main(mode):
     devs.charger()
     baleines.charger()
     evenements.charger()
+    corriger_morts_robinhood(st, pf)
     if mode == "bilan":
         bilan_quotidien(st, sv, pf, forcer=True)
         save_state(st)

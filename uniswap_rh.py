@@ -74,3 +74,23 @@ def devis(cle, zero_pour_un, montant):
 def prix_gaz():
     res, _ = rpc("eth_gasPrice", [])
     return int(res, 16) if res else 0
+
+
+STATEVIEW = "0xf3334192d15450cdd385c8b70e03f9a6bd9e673b"
+
+
+def mort_on_chain(pool_id):
+    """True si le pool n'a plus de liquidité active ET qu'un devis de revente échoue (token invendable) ;
+    False s'il se revend ; None si on ne sait pas (réseau, pool inconnu)."""
+    pid = pool_id.lower().replace("0x", "")
+    lq, err = rpc("eth_call", [{"to": STATEVIEW, "data": "0xfa6793d5" + pid}, "latest"])
+    if lq is None:
+        return None
+    if int(lq, 16):
+        return False
+    cle = cle_du_pool(pool_id)
+    if not cle:
+        return None
+    eth_c0 = int(cle["c0"], 16) == 0
+    r, _ = devis(cle, not eth_c0, 10 ** 21)
+    return r is None
