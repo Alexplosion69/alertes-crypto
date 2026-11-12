@@ -18,9 +18,11 @@ sig = [s for s in pf["signaux"] if s["chain"] == "robinhood" and not s["trop_tar
 jum = [a for a in st["alerts"] if a.get("type") == "jumeau_wallets" and a.get("chain") == "robinhood"]
 vus = {}
 adrs = list({x["address"].lower() for x in sig + jum})
-for i in range(0, len(adrs), 30):
-    for p in v.get_json(f"{v.DS}/tokens/v1/robinhood/{','.join(adrs[i:i + 30])}") or []:
+import time  # noqa: E402
+for ad in adrs:                       # un token par appel : en lot, DexScreener coupe la réponse
+    for p in v.get_json(f"{v.DS}/tokens/v1/robinhood/{ad}") or []:
         vus[p["baseToken"]["address"].lower()] = p.get("pairAddress")
+    time.sleep(0.25)
 mort = {}
 for a in adrs:
     if a not in vus:
