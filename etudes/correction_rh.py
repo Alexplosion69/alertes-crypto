@@ -37,7 +37,13 @@ def corrige(x):
         return r
     s = x.get("sim") or {"cash": 0.0, "moitie": False}
     frais = suivi._frais(1.0) + (suivi._frais(1.0) if s.get("moitie") else 0)
-    return round(s.get("cash", 0.0) - 1.0 - frais, 2)
+    if s.get("moitie"):
+        avant = 1.0                      # la moitié vendue à x2 est acquise, le reste vaut 0
+    elif s.get("cash", 0.0) <= 0.5:
+        avant = s.get("cash", 0.0)       # stop à −50 % touché avant la mort
+    else:
+        avant = 0.0                      # « vendu » au dernier prix affiché à la mort : en vrai, 0
+    return round(avant - 1.0 - frais, 2)
 
 
 def resume(nom, g):
