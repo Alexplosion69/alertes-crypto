@@ -257,11 +257,21 @@ def detecter(pf, k, e, o, verifier, envoyer):
            "securite_ok": ok, "securite": sec_txt[:120], "envoye": False}
     if EN_DIRECT and not trop_tard and len(presents) >= EN_DIRECT_MIN_WALLETS and (ok or inconnue):
         chaine = {"robinhood": "Robinhood Chain", "bsc": "BSC", "base": "Base"}.get(e["chain"], e["chain"])
+        # 12/11 : aucun service de devis ne cote ces tokens ; la preuve qu'ils se revendent, ce sont les
+        # ventes des autres traders sur la dernière heure
+        tx = {}
+        for pa in v.get_json(f"{v.DS}/tokens/v1/{e['chain']}/{e['address']}") or []:
+            if (pa.get("liquidity") or {}).get("usd", 0) >= (tx.get("liq") or 0):
+                tx = {"liq": (pa.get("liquidity") or {}).get("usd", 0), **((pa.get("txns") or {}).get("h1") or {})}
+        ventes = tx.get("sells")
         lignes = [
             f"🐋 <b>${html.escape(str(e['symbol']))}</b> ({chaine}) — {len(presents)} wallets gagnants ont acheté",
             f"💰 leur entrée moyenne : mcap {fmt_usd(mcap_entree)} · maintenant <b>{fmt_usd(mcap)}</b> "
             f"({(prix / entree - 1) * 100:+.0f} %)",
             f"↩️ {vendu} d'entre eux ont déjà vendu une partie" if vendu else "↩️ aucun n'a encore vendu",
+            (f"🔁 sur 1 h : {tx.get('buys', 0)} achats, {ventes} ventes (d'autres arrivent à revendre)" if ventes
+             else "🔁 ⚠️ aucune vente sur la dernière heure : peut-être impossible à revendre, prudence"
+             if ventes == 0 else ""),
             (f"🛡️ ✅ {html.escape(sec_txt)}" if ok else
              "🛡️ ⚠️ GoPlus n'a pas encore analysé ce token : <b>revends 1 € juste après ton achat</b> pour vérifier "
              "que la revente passe"),

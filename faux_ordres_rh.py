@@ -26,8 +26,13 @@ MIN_WALLETS = 5
 MAX_OUVERTES = 40
 
 
+# 12/11 : 0x connaît Robinhood Chain (id 4663) mais ne cote pas ses memecoins (« liquidityAvailable »: false) :
+# ils s'échangent sur des pools Uniswap v4 en ETH que 0x et KyberSwap n'indexent pas. Module en pause.
+ACTIF = False
+
+
 def cle():
-    return os.getenv("ZEROX_API_KEY", "").strip()
+    return os.getenv("ZEROX_API_KEY", "").strip() if ACTIF else ""
 
 
 def devis(vend, achete, montant):
@@ -150,7 +155,7 @@ def tick(st, pf):
 
 def bilan(st):
     if not cle():
-        return ["🧾 Achats fictifs Robinhood Chain (0x) : en attente de la clé ZEROX_API_KEY"]
+        return []
     fo = st.get("faux_ordres_rh") or {}
     f, n_o = fo.get("fermees") or [], len(fo.get("ouvertes") or {})
     sans = fo.get("sans_chemin_achat", 0)
