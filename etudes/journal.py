@@ -2,7 +2,7 @@
 Le bot n'écrit jamais tes positions dans son journal."""
 import subprocess
 
-for unite, motif in (("bot-crypto", "univers élargi|tirage au hasard|analyste|jumeaux|appari|Traceback|Error"),
+for unite, motif in (("bot-crypto", "correction|on-chain|univers élargi|tirage au hasard|jumeaux|Traceback|Error"),
                      ("bot-smart", "smart en direct|warn|Traceback")):
     out = subprocess.run(["sudo", "journalctl", "-u", unite, "--since", "-3h", "--no-pager"],
                          capture_output=True, text=True).stdout
