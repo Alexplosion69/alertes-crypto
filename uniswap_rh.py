@@ -25,7 +25,8 @@ def rpc(methode, params):
     except (requests.RequestException, ValueError):
         return None, "réseau"
     if "error" in d:
-        return None, str(d["error"].get("message", ""))[:120]
+        e = d["error"]
+        return None, (str(e.get("message", ""))[:80] + (" " + str(e.get("data"))[:140] if e.get("data") else ""))
     return d.get("result"), None
 
 

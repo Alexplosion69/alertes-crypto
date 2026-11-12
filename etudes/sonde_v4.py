@@ -24,7 +24,7 @@ for s in sig:
     eth_en_c0 = int(cle["c0"], 16) == 0
     recu, gaz = u.devis(cle, eth_en_c0, wei)
     if recu is None:
-        print(f"{s['symbol']} : devis d'achat refusé ({gaz}) · hooks {cle['hooks'][:10]} fee {cle['fee']}")
+        print(f"{s['symbol']} : devis d'achat refusé ({gaz}) · clé {cle} · token {s['address']} · pool {p['pairAddress'][:14]}")
         continue
     retour, gaz2 = u.devis(cle, not eth_en_c0, recu)
     print(f"{s['symbol']} : fee {cle['fee'] / 1e4:.2f} % · hooks {'oui ' + cle['hooks'][:10] if int(cle['hooks'], 16) else 'non'} · "
