@@ -35,7 +35,10 @@ import suivi
 FICHIER = Path("alertes/portefeuilles.json")
 MANUELS = Path("portefeuilles_manuels.txt")
 
-EN_DIRECT = True              # 12/11 : critères passés (60 duels, +37 points contre les jumeaux) -> alertes
+EN_DIRECT = False             # 12/11 midi : COUPÉ. Les critères avaient « passé » sur une simulation fausse : 38 des
+                              # 39 tokens signalés (5 wallets ou plus) sont morts (disparus de DexScreener ou pool sans
+                              # liquidité), et la simulation les « revendait » à leur dernier prix affiché. Revendus à 0,
+                              # ils font −69 % en moyenne. (Le 12/11 au matin : alertes à partir de 5 wallets.)
 EN_DIRECT_MIN_WALLETS = 5     # seulement quand 5 wallets gagnants ou plus ont acheté (choix d'Alex, ~12/jour)
 # Refus de sécurité qui veulent dire « on ne sait pas » (token trop récent pour GoPlus) : l'alerte part,
 # avec un avertissement. Les vrais dangers (piège, taxe, liquidité retirable…) bloquent l'alerte.
