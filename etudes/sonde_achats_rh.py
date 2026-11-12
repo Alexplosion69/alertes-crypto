@@ -31,7 +31,21 @@ for i in range(0, len(cands), 30):
         actifs.append((h1.get("buys", 0) + h1.get("sells", 0), p_["baseToken"]["address"], p_["baseToken"]["symbol"], p_.get("pairAddress")))
 actifs.sort(reverse=True)
 print("Les plus échangés sur 1 h :", [(a[2], a[0]) for a in actifs[:5]])
-sig = [{"address": a[1], "symbol": a[2]} for a in actifs[:4] if a[0] > 0]
+# DexScreener ne compte peut-être pas les échanges de ces pools : on prend les transactions chez GeckoTerminal,
+# comme le bot pour repérer les wallets gagnants
+v.detecter_reseaux_gt()
+net = v.GT_NETWORKS.get("robinhood")
+print("réseau GeckoTerminal :", net)
+sig, hashes_gt = [], {}
+for s_ in cands[-6:]:
+    pa = next((a[3] for a in actifs if a[1].lower() == s_["address"].lower()), None)
+    d = v.gt_get(f"/networks/{net}/pools/{pa}/trades") if pa and net else None
+    tr = (d or {}).get("data") or []
+    print(f"  {s_['symbol']} : pool {str(pa)[:14]} · {len(tr)} échanges chez GeckoTerminal"
+          + (f", dernier {tr[0]['attributes'].get('block_timestamp')}" if tr else ""))
+    if tr:
+        hashes_gt[s_["symbol"]] = [t["attributes"].get("tx_hash") for t in tr[:5]]
+        sig.append({"address": s_["address"], "symbol": s_["symbol"]})
 appeles, emetteurs, methodes, pools = collections.Counter(), collections.Counter(), collections.Counter(), collections.Counter()
 for s in sig:
     tok = s["address"].lower()
@@ -42,10 +56,11 @@ for s in sig:
         if logs is not None:
             break
         print("  getLogs", fenetre, ":", err)
-    if not logs:
+    if not logs and not hashes_gt.get(s["symbol"]):
         print(s["symbol"], ": aucun transfert récent")
         continue
-    txs = list(dict.fromkeys(lg["transactionHash"] for lg in logs))[-6:]
+    logs = logs or []
+    txs = hashes_gt.get(s["symbol"]) or list(dict.fromkeys(lg["transactionHash"] for lg in logs))[-6:]
     print(f"{s['symbol']} {tok} : {len(logs)} transferts sur la fenêtre, {len(txs)} transactions lues")
     for h in txs:
         t, _ = u.rpc("eth_getTransactionByHash", [h])
