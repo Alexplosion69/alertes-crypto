@@ -32,6 +32,7 @@ import attente
 import meteora_sim
 import faux_ordres
 import faux_ordres_rh
+import tendance_sim
 import baleines
 import devs
 import evenements
@@ -647,6 +648,10 @@ def cycle(st, sent_this_hour, sv, pf):
         faux_ordres_rh.tick(st, pf)
     except Exception as e:
         print(f"[warn] faux ordres Robinhood : {type(e).__name__}")
+    try:                                   # piste A : tendance des grosses cryptos, en simulation
+        tendance_sim.tick(st, telegram)
+    except Exception as e:
+        print(f"[warn] tendance simulée : {type(e).__name__} {str(e)[:120]}")
 
     def envoyer(texte):
         if sent_this_hour[0] >= MAX_ALERTES_HEURE:
@@ -1240,6 +1245,7 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     lignes += bilan_tests_a_blanc(st, detail)
 
     lignes += ["", "<b>④ Les essais pour plus tard</b> (rien d'engagé)"]
+    lignes += tendance_sim.bilan(st)
     lignes += faux_ordres.bilan(st)
     lignes += faux_ordres_rh.bilan(st)
     lignes += meteora_sim.bilan(st)
