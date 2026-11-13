@@ -1064,7 +1064,7 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     frais = {t["key"]: t for t in v.enrich(manquants)} if manquants else {}
     for a in alertes + signaux:
         t = frais.get(a["key"])
-        if t and not suivi.releve_coherent(a, t["price"], t["mcap"]):
+        if t and not suivi.releve_coherent(a, t["price"], t["mcap"], t.get("liq")):
             continue
         if t:
             a["last"], a["last_mcap"] = t["price"], t["mcap"]

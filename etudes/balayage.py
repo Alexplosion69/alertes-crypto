@@ -11,6 +11,9 @@ mcap, liquidité, âge, heure, pub payée).
 Pour ne pas se tromper soi-même : on CHERCHE sur la première partie de la période et on VÉRIFIE sur la
 dernière, sans rien rechoisir (24 h d'écart entre les deux pour qu'aucun trade ne chevauche).
 Frais : Fomo 6 % l'aller-retour (2 × 0,10 € sur 5 € + 2 points d'écart de prix mesuré), wallet perso 2,5 %.
+Prix aberrants écartés (DexScreener qui change de paire : x60 000 sur une photo, fausse pool où la liquidité
+vaut la mcap…) : photo ignorée si x > 500, si prix et mcap ne racontent pas la même histoire, si le prix
+fait plus de x3 en une photo, ou si x > 5 avec une liquidité ≥ 80 % de la mcap.
 Ne lit que la boîte noire : aucune position, aucune clé."""
 import array
 import bisect
@@ -50,7 +53,7 @@ except OSError:
 
 # ---------------------------------------------------------------- lecture de la boîte noire
 T = array.array("d")
-idx, prix, liq = {}, {}, {}
+idx, prix, liq, mc = {}, {}, {}, {}
 dern = {}
 entrees = []                          # (clé, position, temps, caractéristiques connues à l'entrée)
 for f in sorted(DON.glob("20*.jsonl.gz")):
@@ -67,20 +70,24 @@ for f in sorted(DON.glob("20*.jsonl.gz")):
                 if not k.startswith("solana:") or not v[0]:
                     continue
                 if k not in idx:
-                    idx[k], prix[k], liq[k] = array.array("I"), array.array("f"), array.array("f")
+                    idx[k], prix[k], liq[k], mc[k] = (array.array("I"), array.array("f"), array.array("f"),
+                                                      array.array("f"))
                 idx[k].append(n)
                 prix[k].append(v[0])
                 liq[k].append(v[2])
-                if n - dern.get(k, -10 ** 9) >= PAS_ENTREE and v[2] >= 30_000 and v[1] >= 150_000 and v[5] >= 1_000:
+                mc[k].append(v[1])
+                if (n - dern.get(k, -10 ** 9) >= PAS_ENTREE and v[2] >= 30_000 and v[1] >= 150_000
+                        and v[5] >= 1_000 and v[2] <= 0.8 * v[1]):
                     dern[k] = n
                     pos = len(prix[k]) - 1
                     j0 = bisect.bisect_left(idx[k], bisect.bisect_left(T, t - 86400))
-                    hist = prix[k][j0:pos + 1]
+                    hist = sorted(prix[k][j0:pos + 1])              # 2 % du haut et du bas écartés (pics aberrants)
+                    haut, bas = hist[int(0.98 * (len(hist) - 1))], hist[int(0.02 * (len(hist) - 1))]
                     assez = t - T[idx[k][j0]] >= 12 * 3600
                     entrees.append((k, pos, t, {
                         "var_m5": v[11], "var_h1": v[12], "var_h24": v[13],
-                        "repli24": (v[0] / max(hist) - 1) * 100 if assez else None,
-                        "rebond24": (v[0] / min(hist) - 1) * 100 if assez and min(hist) > 0 else None,
+                        "repli24": (v[0] / haut - 1) * 100 if assez else None,
+                        "rebond24": (v[0] / bas - 1) * 100 if assez and bas > 0 else None,
                         "ratio": (v[9] / v[10]) if v[10] and v[9] + v[10] >= 20 else None,
                         "vol_liq": v[5] / v[2], "mcap": v[1], "liq_mcap": v[2] / v[1],
                         "age": (t - creee[k]) / 86400 if k in creee else None,
@@ -93,13 +100,14 @@ print(f"Boîte noire : {len(T)} photos du {jour(T[0])} au {jour(fin)} UTC · {N}
 
 # ---------------------------------------------------------------- résultat de chaque règle de sortie
 M = np.zeros((N, C), dtype=np.float32)
-nb_morts = 0
+nb_morts = nb_ignores = nb_touches = nb_gros = 0
 for e_i, (k, pos, te, _) in enumerate(entrees):
-    ix, px, lq = idx[k], prix[k], liq[k]
+    ix, px, lq, mk = idx[k], prix[k], liq[k], mc[k]
     p0 = px[pos]
+    s0 = mk[pos] / p0
     xs, rel = [], []
     t_mort = None
-    j, au_bout = pos, False
+    j, au_bout, avant, ignores = pos, False, p0, 0
     while j + 1 < len(px):
         j += 1
         r = T[ix[j]] - te
@@ -109,8 +117,17 @@ for e_i, (k, pos, te, _) in enumerate(entrees):
         if lq[j] < 5_000:                                   # liquidité partie : invendable
             t_mort = r
             break
-        xs.append(px[j] / p0)
+        x = px[j] / p0
+        offre = mk[j] / px[j] / s0 if px[j] else 0
+        if x > 500 or not 1 / 3 < offre < 3 or px[j] > 3 * avant or (x > 5 and lq[j] >= 0.8 * mk[j]):
+            ignores += 1                                    # prix aberrant : photo ignorée
+            continue
+        avant = px[j]
+        xs.append(x)
         rel.append(r)
+    nb_ignores += ignores
+    nb_touches += ignores > 0
+    nb_gros += bool(xs) and max(xs) >= 5
     if (t_mort is None and not au_bout and xs and rel[-1] < HORIZON - 1800
             and fin - (te + rel[-1]) > 3600 and xs[-1] < 0.5):
         t_mort = rel[-1]                                    # disparu de la boîte noire après −50 % : mort
@@ -139,7 +156,9 @@ for e_i, (k, pos, te, _) in enumerate(entrees):
             ligne[c] = -1.0
         elif fi >= 0:
             ligne[c] = xs[fi] - 1
-print(f"Résultats calculés en {time.time() - t0:.0f} s ({nb_morts} entrées finissent sur un token mort dans les 24 h)")
+print(f"Résultats calculés en {time.time() - t0:.0f} s · {nb_morts} entrées finissent sur un token mort dans les 24 h · "
+      f"{nb_ignores} photos au prix aberrant ignorées ({nb_touches} entrées concernées) · "
+      f"{nb_gros} entrées font encore x5 ou plus en 24 h")
 
 # ---------------------------------------------------------------- découpage chercher / vérifier
 temps = np.array([e[2] for e in entrees])

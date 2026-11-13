@@ -191,7 +191,7 @@ def rafraichir(s, listes_suivies):
             if now - a["ts"] > SUIVI_JOURS * 86400 or not a.get("price"):
                 continue
             t = by_key.get(a["key"])
-            if t and not releve_coherent(a, t["price"], t["mcap"]):
+            if t and not releve_coherent(a, t["price"], t["mcap"], t.get("liq")):
                 t = None                    # prix aberrant (changement de paire, bug de cotation) : ignoré
             if t:
                 a["last"], a["last_mcap"] = t["price"], t["mcap"]
@@ -210,14 +210,18 @@ def rafraichir(s, listes_suivies):
 X_MAX = 500          # au-delà, un « x » mesuré en 7 jours est presque toujours un bug de prix
 
 
-def releve_coherent(a, prix, mcap):
+def releve_coherent(a, prix, mcap, liq=None):
     """Un relevé n'est gardé que si le prix et la capitalisation racontent la même histoire.
     Quand DexScreener change de paire de référence (paire en MUSK4, BNCB, WBTC…), le prix en $
-    peut être faux d'un facteur 1000 alors que la capitalisation, elle, reste cohérente."""
+    peut être faux d'un facteur 1000 alors que la capitalisation, elle, reste cohérente.
+    Autre piège vu dans la boîte noire (13/11) : bascule sur une fausse pool où la « liquidité » vaut
+    presque la mcap, avec un prix x100 — impossible pour une vraie pool après une telle hausse."""
     if not a.get("price") or not prix:
         return False
     x_prix = prix / a["price"]
     if x_prix > X_MAX:
+        return False
+    if liq and mcap and x_prix > 5 and liq >= 0.8 * mcap:
         return False
     if a.get("mcap") and mcap:
         ecart = x_prix / (mcap / a["mcap"])
