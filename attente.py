@@ -611,9 +611,11 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset())
         conf_txt = []
         if p0 and p1:
             conf_txt.append(f"porteurs {p0} → {p1} ({(p1 / p0 - 1) * 100:+.0f} % depuis l'entrée en liste)")
-        if conf:
-            conf_txt.append(f"depuis le sommet : {conf['acheteurs']} acheteurs / {conf['vendeurs']} vendeurs distincts, "
-                            f"wallets suivis {conf['smart_achats']} achat(s), {conf['smart_ventes']} vente(s)")
+        if conf:                               # l'écoute en direct seule ne compte pas les acheteurs distincts (13/11)
+            distincts = (f"{conf['acheteurs']} acheteurs / {conf['vendeurs']} vendeurs distincts, "
+                         if "acheteurs" in conf else "")
+            conf_txt.append(f"depuis le sommet : {distincts}wallets suivis {conf.get('smart_achats', 0)} achat(s), "
+                            f"{conf.get('smart_ventes', 0)} vente(s)")
         # 6. zone d'entrée validée
         stop = f["bas"] * f["ratio_mcap"] * 0.9
         lignes = [
