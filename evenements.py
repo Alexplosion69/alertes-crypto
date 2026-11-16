@@ -2,8 +2,10 @@
 Actu et événements (21/10/2026)
 
 Deux choses :
-1. Calendrier : les événements datés (GTA 6, Black Friday…) de evenements_calendrier.txt et ceux
-   ajoutés avec /evenement. Rappel 14 et 7 jours avant, la veille et le jour J. Si tu as une position
+1. Calendrier : les événements datés (GTA 6, AG Tesla…) de evenements_calendrier.txt et ceux
+   ajoutés avec /evenement. Rappel 14 et 7 jours avant, la veille et le jour J — seulement pour les
+   événements « majeurs » (inédits et très attendus) ; les fêtes qui reviennent chaque année sont
+   « récurrentes » : mesurées pour comparer, sans rappel (16/11, demande d'Alex). Si tu as une position
    dont le nom colle à l'événement, on te rappelle de vendre avant (ces tokens s'effondrent souvent le
    jour J).
 2. Radar actu : toutes les 30 min, les recherches qui montent sur Google (États-Unis, là où naissent
@@ -247,7 +249,7 @@ def evenements_actifs(auj=None):
             ecart = (auj - date.fromisoformat(e["date"])).days
         except ValueError:
             continue
-        if ecart in PRIO_EVT_JOURS:
+        if ecart in PRIO_EVT_JOURS and e.get("type") != "recurrent":
             mots = [m for m in e["mots"] + [e["nom"]] if len(_norm(m)) >= 4 and not _norm(m).isdigit()]
             actifs.append({**e, "motifs": [_motif(m) for m in mots], "ignorer": {_norm(m) for m in mots}})
     return actifs
@@ -373,7 +375,9 @@ def evenements():
             parts = [p.strip() for p in ligne.split("|")]
             if len(parts) >= 2 and re.fullmatch(r"\d{4}-\d{2}-\d{2}", parts[0]):
                 mots = [m.strip() for m in (parts[2] if len(parts) > 2 else "").split(",") if m.strip()]
-                liste.append({"date": parts[0], "nom": parts[1], "mots": mots})
+                typ = _norm(parts[3]) if len(parts) > 3 and parts[3] else "majeur"
+                liste.append({"date": parts[0], "nom": parts[1], "mots": mots,
+                              "type": "recurrent" if typ.startswith("recur") else "majeur"})
     liste += _etat["ajouts"]
     retires = {_norm(n) for n in _etat["retires"]}
     return sorted([e for e in liste if _norm(e["nom"]) not in retires], key=lambda e: e["date"])
@@ -416,8 +420,8 @@ def calendrier(envoyer, positions=None):
         except ValueError:
             continue
         reste = (jour - auj).days
-        if reste not in RAPPELS_J:
-            continue
+        if reste not in RAPPELS_J or e.get("type") == "recurrent":
+            continue                      # 16/11 (Alex) : pas de rappel pour les fêtes qui reviennent chaque année
         cle = f"{_norm(e['nom'])}:{e['date']}:{reste}"
         if cle in _etat["rappels"]:
             continue
@@ -486,6 +490,9 @@ def mesurer(envoyer):
             s["mcap"][str(-reste)] = mc         # clé = jour relatif à l'événement (−7, 0, 3…)
         if reste == -MESURE_APRES_J:
             m["fini"] = True
+            m["type"] = e.get("type", "majeur")
+            if m["type"] == "recurrent":
+                continue                        # mesuré pour comparer, sans message (Alex : peu de hype)
             lignes = [f"📏 <b>{html.escape(e['nom'])} : quand les tokens du sujet ont-ils monté ?</b>"]
             for s in suivis_.values():
                 mc = {int(j): x for j, x in s["mcap"].items()}
@@ -539,7 +546,8 @@ def cmd_evenements(envoyer):
     lignes = ["📅 <b>Événements à venir</b>"]
     for e in a_venir:
         jour = date.fromisoformat(e["date"])
-        lignes.append(f"· {jour.strftime('%d/%m/%Y')} {html.escape(e['nom'])}")
+        lignes.append(f"· {jour.strftime('%d/%m/%Y')} {html.escape(e['nom'])}"
+                      + (" <i>(chaque année, sans rappel)</i>" if e.get("type") == "recurrent" else ""))
     lignes.append("Ajouter : <code>/evenement AAAA-MM-JJ Nom mots,clés</code> · retirer : <code>/oublie Nom</code>")
     envoyer("\n".join(lignes))
 
@@ -559,7 +567,7 @@ def cmd_evenement(args, envoyer):
     if len(reste) > 1 and "," in reste[-1]:
         mots = [m.strip() for m in reste.pop().split(",") if m.strip()]
     nom = " ".join(reste)
-    _etat["ajouts"].append({"date": args[0], "nom": nom, "mots": mots})
+    _etat["ajouts"].append({"date": args[0], "nom": nom, "mots": mots, "type": "majeur"})
     _etat["retires"] = [n for n in _etat["retires"] if _norm(n) != _norm(nom)]
     sauver()
     envoyer(f"✅ Ajouté : <b>{html.escape(nom)}</b> le {date.fromisoformat(args[0]).strftime('%d/%m/%Y')}. "
