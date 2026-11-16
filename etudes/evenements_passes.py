@@ -9,12 +9,24 @@ Solana, BSC et Base) et leur prix jour par jour, de J−30 à J+7 (J = le jour d
 Frais Fomo comptés : 6 % l'aller-retour (petite mise).
 Limite : la recherche montre surtout les tokens encore connus aujourd'hui (les morts oubliés manquent),
 ce qui rend le résultat plutôt trop beau. Données publiques GeckoTerminal, aucune clé."""
+import json
 import re
 import statistics
+import sys
 import time
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 import requests
+
+sys.stdout.reconfigure(line_buffering=True)              # afficher au fur et à mesure (étude longue)
+CACHE = Path("/tmp/cache_gt_evenements.json")            # réponses gardées entre deux lancements
+try:
+    _rep = json.loads(CACHE.read_text())
+except (OSError, ValueError):
+    _rep = {}
+DEBUT, BUDGET = time.time(), 22 * 60                     # au-delà, on s'arrête et on résume ce qu'on a
+stats_appels = {"ok": 0, "429": 0, "autre": 0, "cache": 0}
 
 GT = "https://api.geckoterminal.com/api/v2"
 H = {"Accept": "application/json;version=20230302", "User-Agent": "Mozilla/5.0 alertes-crypto/1.0"}
@@ -43,17 +55,34 @@ _dernier = [0.0]
 
 
 def gt(chemin, **params):
-    attente = 2.2 - (time.time() - _dernier[0])          # 30 appels par minute au plus
-    if attente > 0:
-        time.sleep(attente)
+    cle = chemin + "?" + "&".join(f"{k}={params[k]}" for k in sorted(params))
+    if cle in _rep:
+        stats_appels["cache"] += 1
+        return _rep[cle]
+    if time.time() - DEBUT > BUDGET:
+        return None                                      # plus le temps : on garde pour le prochain lancement
     for essai in range(3):
+        attente = 2.2 - (time.time() - _dernier[0])      # 30 appels par minute au plus
+        if attente > 0:
+            time.sleep(attente)
         _dernier[0] = time.time()
         try:
             r = requests.get(GT + chemin, params=params, headers=H, timeout=30)
             if r.status_code == 429:
-                time.sleep(20)
+                stats_appels["429"] += 1
+                time.sleep(15)
                 continue
-            return r.json() if r.ok else {}
+            if not r.ok:
+                stats_appels["autre"] += 1
+                if stats_appels["autre"] <= 3:
+                    print(f"   (GeckoTerminal {r.status_code} sur {chemin[:60]})")
+                return {}
+            d = r.json()
+            stats_appels["ok"] += 1
+            _rep[cle] = d
+            if stats_appels["ok"] % 20 == 0:
+                CACHE.write_text(json.dumps(_rep))
+            return d
         except (requests.RequestException, ValueError):
             time.sleep(5)
     return {}
@@ -72,7 +101,7 @@ def chercher(mot):
         return _cache[mot]
     trouves = {}
     for res in RESEAUX:
-        d = gt("/search/pools", query=mot, network=res, include="base_token")
+        d = gt("/search/pools", query=mot, network=res, include="base_token") or {}
         noms = {x["id"]: (x.get("attributes") or {}) for x in d.get("included") or []}
         for p in d.get("data") or []:
             a = p.get("attributes") or {}
@@ -90,7 +119,9 @@ def chercher(mot):
 
 def bougies(res, pool, j0):
     """{jour relatif: (clôture, volume $)} de J−35 à J+8."""
-    d = gt(f"/networks/{res}/pools/{pool}/ohlcv/day", before_timestamp=j0 + 9 * 86400, limit=45, currency="usd")
+    d = gt(f"/networks/{res}/pools/{pool}/ohlcv/day", before_timestamp=int(j0 + 9 * 86400), limit=45, currency="usd")
+    if d is None:
+        return None
     out = {}
     for ts, o, h, l, c, vol in ((d.get("data") or {}).get("attributes") or {}).get("ohlcv_list") or []:
         j = round((ts - j0) / 86400)
@@ -128,6 +159,9 @@ for nom, jour, mots in EVENEMENTS:
         if len(series) >= MAX_TOKENS:
             break
         b = bougies(res, pool, j0)
+        if b is None:
+            print("   … temps écoulé, la suite au prochain lancement")
+            break
         if not b or max(v for _, v in b.values()) < VOL_MIN:
             continue                                     # jamais vraiment échangé autour de l'événement
         series.append((sym, res, b))
@@ -165,6 +199,11 @@ for nom, jour, mots in EVENEMENTS:
               f"médiane {statistics.median(r1) * 100:+.0f} %, gagnants {sum(x > 0 for x in r1)}/{len(r1)} · le plus gros "
               f"(${str(par_vol[0][0])[:10]}) {((prix_a(par_vol[0][1], 0) or 0) / par_vol[0][1][e][0] - 1 - COUT) * 100:+.0f} %")
 
+try:
+    CACHE.write_text(json.dumps(_rep))
+except OSError:
+    pass
+print(f"\nAppels GeckoTerminal : {stats_appels} · {time.time() - DEBUT:.0f} s")
 if pics:
     print(f"\nJour du plus haut (tous tokens confondus, {len(pics)}) : médiane J{statistics.median(pics):+.0f} · "
           f"avant J−7 : {sum(p < -7 for p in pics)} · de J−7 à la veille : {sum(-7 <= p < 0 for p in pics)} · "
