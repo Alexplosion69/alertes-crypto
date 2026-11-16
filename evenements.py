@@ -393,8 +393,11 @@ def _positions_liees(e, positions):
 def tokens_evenement(e):
     """Tokens solides liés à un événement, quel que soit leur âge : on cherche chaque mot-clé."""
     vus, tous = set(), []
+    # 16/11 : pour une fête qui revient chaque année, on garde aussi les tokens des années passées
+    # (un token qui remonterait à chaque Noël serait né il y a longtemps)
+    fenetre = 24 * 365 * (5 if e.get("type") == "recurrent" else 1)
     for mot in (e["mots"] or [e["nom"]])[:4]:
-        for t in tokens_du_sujet(mot, fenetre_h=24 * 365):
+        for t in tokens_du_sujet(mot, fenetre_h=fenetre):
             cle = f"{t['chain']}:{t['address']}"
             if cle not in vus:
                 vus.add(cle)
@@ -477,7 +480,7 @@ def mesurer(envoyer):
         suivis_ = m["tokens"]
         for t in solides[:MESURE_NB_TOKENS]:   # les plus gros, ajoutés une fois puis suivis
             k = f"{t['chain']}:{t['address']}"
-            suivis_.setdefault(k, {"symbol": t["symbol"], "mcap": {}})
+            suivis_.setdefault(k, {"symbol": t["symbol"], "mcap": {}, "age_j": round(t["age_h"] / 24)})
         par_cle = {f"{t['chain']}:{t['address']}": t for t in solides}
         for k, s in suivis_.items():
             t = par_cle.get(k)
