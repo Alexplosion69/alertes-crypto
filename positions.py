@@ -244,14 +244,19 @@ def bouton_zone(p, cq, chat):
     if str((msg.get("chat") or {}).get("id")) != chat:
         return
     morceaux = (cq.get("data") or "").split(":")
-    if len(morceaux) < 2 or morceaux[0] not in ("za", "zp"):
+    if len(morceaux) < 2 or morceaux[0] not in ("za", "zp", "zf"):
         return
     zid, achete = morceaux[1], morceaux[0] == "za"
-    p.setdefault("choix_zones", {})[zid] = "achete" if achete else "passe"
+    if morceaux[0] == "zf":          # 16/11 : exemple pour régler le filtre Fomo (gardé à part, sans position)
+        p.setdefault("refus_fomo", {})[zid] = time.time()
+        p.setdefault("choix_zones", {})[zid] = "refuse_fomo"
+        texte = "🚩 Noté : absent ou « arnaque » sur Fomo"
+    else:
+        p.setdefault("choix_zones", {})[zid] = "achete" if achete else "passe"
+        texte = "✅ Noté : acheté" if achete else "⏭️ Noté : pas pris"
     api("answerCallbackQuery", callback_query_id=cq.get("id"), text="Noté 👍")
     api("editMessageReplyMarkup", chat_id=chat, message_id=msg.get("message_id"),
-        reply_markup={"inline_keyboard": [[{"text": "✅ Noté : acheté" if achete else "⏭️ Noté : pas pris",
-                                            "callback_data": "zx"}]]})
+        reply_markup={"inline_keyboard": [[{"text": texte, "callback_data": "zx"}]]})
     if achete and len(morceaux) >= 3:
         cmd_achat(p, [morceaux[2]])     # suivi de la position au prix du moment (corrigeable avec /vente)
 

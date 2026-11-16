@@ -256,6 +256,54 @@ def goplus(tokens):
                                  "top10_detenteurs_pct": round(top10, 1) if holders else None}
 
 
+# ---------------------------------------------------------------- filtre « achetable sur Fomo » (16/11/2026)
+# Alex : beaucoup de tokens reçus ne sont pas affichés sur Fomo ou y sont marqués comme arnaque. Fomo ne dit
+# pas d'où viennent ses alertes ; on s'appuie sur la fiche Jupiter (Solana), la sécurité GoPlus étant déjà
+# exigée pour BSC / Base. Version 1, à ajuster avec les tokens qu'Alex marque « 🚩 refusé par Fomo ».
+JUP_TOKENS = "https://lite-api.jup.ag/tokens/v2/search"
+CHAINES_FOMO = ("solana", "base", "bsc", "ethereum", "robinhood")      # chaînes que Fomo sait échanger
+
+
+def jupiter_infos(adresses):
+    """Fiche Jupiter des tokens Solana : {adresse: {verifie, score, label, porteurs, top_pct, dev_pct, mint_ok,
+    gel_ok}}. Un token absent de la réponse est inconnu de Jupiter. None si Jupiter ne répond pas."""
+    adresses = list(dict.fromkeys(a for a in adresses if a))
+    res, repondu = {}, False
+    for i in range(0, len(adresses), 50):
+        d = get_json(JUP_TOKENS, params={"query": ",".join(adresses[i:i + 50])})
+        if not isinstance(d, list):
+            continue
+        repondu = True
+        for x in d:
+            au = x.get("audit") or {}
+            res[x.get("id")] = {"verifie": bool(x.get("isVerified")), "score": x.get("organicScore"),
+                                "label": x.get("organicScoreLabel"), "porteurs": x.get("holderCount"),
+                                "top_pct": au.get("topHoldersPercentage"), "dev_pct": au.get("devBalancePercentage"),
+                                "mint_ok": au.get("mintAuthorityDisabled"), "gel_ok": au.get("freezeAuthorityDisabled")}
+    return res if repondu or not adresses else None
+
+
+def filtre_fomo(chain, info):
+    """(ok, raison) : le token a-t-il des chances d'être achetable sur Fomo sans alerte « arnaque » ?"""
+    if chain not in CHAINES_FOMO or chain in CHAINES_OBS:
+        return False, "chaîne sans contrôle de sécurité fiable"
+    if chain != "solana":
+        return True, "sécurité GoPlus déjà vérifiée"
+    if not info:
+        return False, "inconnu de Jupiter (souvent pas affiché sur les applis)"
+    if info.get("mint_ok") is False or info.get("gel_ok") is False:
+        return False, "le créateur peut encore créer ou geler des tokens"
+    if (info.get("top_pct") or 0) > 30:
+        return False, f"top détenteurs {info['top_pct']:.0f} % (trop concentré)"
+    if (info.get("dev_pct") or 0) > 10:
+        return False, f"le créateur détient {info['dev_pct']:.0f} %"
+    if info.get("label") == "low" and not info.get("verifie"):
+        return False, "activité surtout faite par des robots (score organique bas, non vérifié)"
+    return True, (("vérifié Jupiter, " if info.get("verifie") else "")
+                  + f"score organique {info.get('label') or '?'}"
+                  + (f", {info['porteurs']} porteurs" if info.get("porteurs") else ""))
+
+
 # ---------------------------------------------------------------- écriture sûre et archives (05/11/2026)
 def ecrire_json(fichier, obj, **kw):
     """Écrit le fichier d'un coup : d'abord un fichier temporaire, puis on le met à la place.

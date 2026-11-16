@@ -648,6 +648,10 @@ def cycle(st, sent_this_hour, sv, pf):
         faux_ordres_rh.tick(st, pf)
     except Exception as e:
         print(f"[warn] faux ordres Robinhood : {type(e).__name__}")
+    try:                                   # 16/11 : avis du filtre Fomo sur les signaux de l'heure
+        annoter_fomo(st)
+    except Exception as e:
+        print(f"[warn] filtre Fomo : {type(e).__name__}")
     try:                                   # piste A : tendance des grosses cryptos, en simulation
         tendance_sim.tick(st, telegram)
     except Exception as e:
@@ -699,6 +703,55 @@ def corriger_morts_robinhood(st, pf):
 
 JUMEAUX_WALLETS = 3
 JUMEAUX_W_DEPUIS = 1794225600      # 09/11/2026 13 h (Paris) : premiers jumeaux des wallets gagnants
+MOM_TEST_DEPUIS = 1794834000       # 16/11/2026 14 h (Paris) : test Momentum filtré, critères validés par Alex
+TYPES_FOMO = ("attente", "momentum", "temoin", "temoin_apparie")
+
+
+def annoter_fomo(st):
+    """16/11 : chaque signal récent reçoit l'avis du filtre « achetable sur Fomo » (fiche Jupiter pour Solana),
+    pris dans l'heure qui suit, pour mesurer ensuite si le filtre trie vraiment."""
+    now = time.time()
+    a_faire = [a for a in st["alerts"][-500:] if a.get("type") in TYPES_FOMO and a.get("fomo_ok") is None
+               and now - a["ts"] < 3600 and a.get("address")]
+    if not a_faire:
+        return
+    sol = [a["address"] for a in a_faire if a["chain"] == "solana"]
+    infos = v.jupiter_infos(sol) if sol else {}
+    for a in a_faire:
+        if a["chain"] == "solana":
+            if infos is None:
+                continue                    # Jupiter ne répond pas : on réessaiera au prochain cycle
+            a["jup"] = infos.get(a["address"])
+            a["fomo_ok"], a["fomo_raison"] = v.filtre_fomo("solana", a["jup"])
+        else:
+            a["fomo_ok"], a["fomo_raison"] = v.filtre_fomo(a["chain"], None)
+
+
+def bilan_test_momentum(st, strat):
+    """Test validé par Alex le 16/11 : les Momentum qui passent l'évitement ET le filtre Fomo, mesurés à
+    partir du 16/11 (signaux que personne n'avait regardés), contre les tirages au hasard de la même période."""
+    g = [a for a in st["alerts"] if a.get("type") == "momentum" and a["ts"] >= MOM_TEST_DEPUIS
+         and not a.get("evitement") and a.get("fomo_ok") is True and a.get("chain") not in v.CHAINES_OBS]
+    tem = [a for a in st["alerts"] if a.get("type") == "temoin" and a["ts"] >= MOM_TEST_DEPUIS]
+    titre = "🚀 Test Momentum filtré (passe l'évitement et le filtre Fomo, depuis le 16/11)"
+    if not g:
+        return [f"{titre} : aucun signal pour l'instant"]
+    lignes = strat(g, titre)
+    ok = lambda b: "✅" if b else "❌"
+    r = sorted(suivi.resultat_sim_net(a) for a in g)
+    parts = [f"{ok(len(r) >= 30)} {len(r)}/30 signaux"]
+    if len(r) > 3:
+        sans3 = (sum(r) - sum(r[-3:])) / (len(r) - 3)
+        parts.append(f"{ok(sans3 > 0)} sans les 3 meilleurs {sans3 * 100:+.0f} %")
+    if tem:
+        mg, mt = statistics.median(r), statistics.median(suivi.resultat_sim_net(a) for a in tem)
+        parts.append(f"{ok(mg > mt)} médiane {mg * 100:+.0f} % contre {mt * 100:+.0f} % pour le hasard")
+    if len(r) >= 4:
+        chrono = [suivi.resultat_sim_net(a) for a in sorted(g, key=lambda a: a["ts"])]
+        h = len(chrono) // 2
+        a1, a2 = sum(chrono[:h]) / h, sum(chrono[h:]) / (len(chrono) - h)
+        parts.append(f"{ok(a1 > 0 and a2 > 0)} moitiés {a1 * 100:+.0f} / {a2 * 100:+.0f} %")
+    return lignes + ["   📏 Critères : " + " · ".join(parts)]
 
 
 def jumeaux_wallets(st, sv, pf):
@@ -1018,6 +1071,11 @@ def bilan_tests_a_blanc(st, detail):
     if s_oui or s_non:
         lignes.append("   🐋 Wallets suivis (achats dans les 6 h avant le tirage) :")
         lignes += detail(s_oui, "au moins un wallet suivi acheteur") + detail(s_non, "aucun")
+    f_ok = [a for a in lab if a.get("fomo_ok") is True]
+    f_non = [a for a in lab if a.get("fomo_ok") is False]
+    if f_ok or f_non:
+        lignes.append("   🛒 Filtre Fomo (depuis le 16/11) :")
+        lignes += detail(f_ok, "ok") + detail(f_non, "refusé")
     c_ok = [a for a in lab if a.get("aveugle_concentration") == "ok"]
     c_non = [a for a in lab if a.get("aveugle_concentration") == "non"]
     if c_ok or c_non:
@@ -1205,6 +1263,7 @@ def bilan_quotidien(st, sv, pf, forcer=False):
         lignes.append(f"   → écart Repli − tirages : <b>{(ma - mt) * 100:+.0f} points</b> "
                       f"({len(att)} signaux contre {len(tem)} tirages)")
     lignes += bilan_course(st)
+    lignes += bilan_test_momentum(st, strat)
 
     lignes += ["", "<b>② La piste des wallets gagnants</b> (surtout Robinhood Chain, critères validés le 10/11)"]
     lignes += bilan_wallets(st, pf, strat)
@@ -1224,6 +1283,10 @@ def bilan_quotidien(st, sv, pf, forcer=False):
     v_non = [a for a in att if a.get("verdict_complet") in ("NON", "PRUDENCE")]
     if v_go or v_non:
         indices += detail(v_go, "Analyse Claude : GO") + detail(v_non, "Analyse Claude : prudence ou non")
+    f_ok = [a for a in att if a.get("fomo_ok") is True]
+    f_non = [a for a in att if a.get("fomo_ok") is False]
+    if f_ok or f_non:                     # 16/11 : les « refusé » ne sont plus envoyés, mais restent mesurés
+        indices += detail(f_ok, "filtre Fomo : ok") + detail(f_non, "filtre Fomo : refusé (non envoyé)")
     if indices:
         lignes.append("🔎 Indices sur les signaux Repli :")
         lignes += indices

@@ -508,7 +508,9 @@ def _envoyer_zone(texte, zid, adresse):
     if not token or not chat:
         return False
     clavier = {"inline_keyboard": [[{"text": "✅ J'ai acheté", "callback_data": f"za:{zid}:{adresse}"[:64]},
-                                    {"text": "⏭️ Pas pris", "callback_data": f"zp:{zid}"}]]}
+                                    {"text": "⏭️ Pas pris", "callback_data": f"zp:{zid}"}],
+                                   # 16/11 : pour régler le filtre Fomo avec de vrais exemples
+                                   [{"text": "🚩 Absent ou « arnaque » sur Fomo", "callback_data": f"zf:{zid}"}]]}
     try:
         r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", timeout=20,
                           json={"chat_id": chat, "text": texte, "parse_mode": "HTML",
@@ -632,10 +634,24 @@ def tick(st, sv, frais, securite, envoyer, ajouter_suivi, smart_set=frozenset())
             f"<a href=\"{t.get('dexscreener')}\">Voir sur DexScreener</a>",
             "<i>Signal en test, pas un conseil. Petite mise seulement.</i>",
         ]
+        # 16/11 (Alex : des tokens reçus absents de Fomo ou marqués arnaque) : filtre « achetable sur Fomo ».
+        # Un signal refusé est noté pour la mesure mais n'est pas envoyé (ni analysé par Claude).
+        info_j = None
+        if t["chain"] == "solana":
+            infos = v.jupiter_infos([t["address"]])
+            info_j = infos.get(t["address"]) if infos is not None else None
+            fomo_ok, fomo_txt = (v.filtre_fomo(t["chain"], info_j) if infos is not None
+                                 else (None, "Jupiter indisponible, pas vérifié"))
+        else:
+            fomo_ok, fomo_txt = v.filtre_fomo(t["chain"], None)
+        lignes.insert(len(lignes) - 3, f"🛒 Filtre Fomo : {'refusé' if fomo_ok is False else 'ok'} — {html.escape(fomo_txt)}")
         zid = int(now)
-        envoye = bool(EN_DIRECT and _envoyer_zone("\n".join(x for x in lignes if x), zid, t["address"]))
-        analyste_claude(t, f, zid, lignes)
+        envoye = bool(EN_DIRECT and fomo_ok is not False
+                      and _envoyer_zone("\n".join(x for x in lignes if x), zid, t["address"]))
+        if fomo_ok is not False:
+            analyste_claude(t, f, zid, lignes)
         _noter(st, t, "attente", envoye=envoye, hausse=round(f["hausse"], 2), repli_pct=round(f["repli"] * 100),
+               fomo_ok=fomo_ok, fomo_raison=fomo_txt[:90], jup=info_j,
                videur=({True: "oui", False: "non"}.get(ok_c, "non configuré")), raison_claude=raison_c[:120], zid=zid,
                porteurs0=p0, porteurs=p1, **conf, **infos_gt(t))
         ajouter_suivi(t)
