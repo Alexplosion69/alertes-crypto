@@ -41,7 +41,7 @@ def bougies(sym):
 
 def financement(sym):
     """{jour (début, s): somme des taux de financement du jour} ; vide si l'API des contrats est injoignable."""
-    par_jour, debut = {}, 0
+    par_jour, debut = {}, 1567296000000                       # 01/09/2019 : 0 renverrait les plus récents
     try:
         while True:
             d = requests.get("https://fapi.binance.com/fapi/v1/fundingRate", timeout=30, headers=UA,
