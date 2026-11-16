@@ -444,7 +444,8 @@ def calendrier(envoyer, positions=None):
 
 
 # ---------------------------------------------------------------- avant / après (option 6 du plan)
-MESURE_AVANT_J, MESURE_APRES_J = 10, 3     # relevé quotidien de J−10 à J+3, bilan à J+3
+MESURE_AVANT_J, MESURE_APRES_J = 30, 7     # 16/11 : relevé quotidien de J−30 à J+7 (avant : J−10 → J+3), bilan à J+7
+MESURE_NB_TOKENS = 8                       # les 8 plus gros tokens du sujet (avant : 5)
 
 
 def mesurer(envoyer):
@@ -470,7 +471,7 @@ def mesurer(envoyer):
         m["dernier"] = auj.isoformat()
         solides, _ = tokens_evenement(e)
         suivis_ = m["tokens"]
-        for t in solides[:5]:                  # les 5 plus gros, ajoutés une fois puis suivis
+        for t in solides[:MESURE_NB_TOKENS]:   # les plus gros, ajoutés une fois puis suivis
             k = f"{t['chain']}:{t['address']}"
             suivis_.setdefault(k, {"symbol": t["symbol"], "mcap": {}})
         par_cle = {f"{t['chain']}:{t['address']}": t for t in solides}
@@ -485,17 +486,21 @@ def mesurer(envoyer):
             s["mcap"][str(-reste)] = mc         # clé = jour relatif à l'événement (−7, 0, 3…)
         if reste == -MESURE_APRES_J:
             m["fini"] = True
-            lignes = [f"📏 <b>{html.escape(e['nom'])} : la hausse s'est-elle faite avant ou après ?</b>"]
+            lignes = [f"📏 <b>{html.escape(e['nom'])} : quand les tokens du sujet ont-ils monté ?</b>"]
             for s in suivis_.values():
-                mc = s["mcap"]
-                debut = next((mc[j] for j in ("-7", "-6", "-5", "-4", "-3", "-2") if mc.get(j)), None)
-                veille, apres = mc.get("-1"), mc.get(str(MESURE_APRES_J))
-                def pc(a, b):
-                    return f"{(b / a - 1) * 100:+.0f} %" if a and b else "?"
-                lignes.append(f"   · ${html.escape(str(s['symbol']))} : avant {pc(debut, veille)} · "
-                              f"après {pc(veille, apres)}")
-            lignes.append("<i>« avant » = d'environ J−7 à la veille, « après » = de la veille à J+3. "
-                          "Mesuré une fois par jour sur les tokens les plus gros du sujet.</i>")
+                mc = {int(j): x for j, x in s["mcap"].items()}
+                if not mc:
+                    continue
+                d0 = min(mc)
+                def pc(j):
+                    a, b = mc.get(d0), mc.get(j)
+                    return f"{(b / a - 1) * 100:+.0f} %" if a and b is not None else "—"
+                jp = max(mc, key=lambda j: mc[j])
+                lignes.append(f"   · ${html.escape(str(s['symbol']))} (suivi depuis J{d0:+d}) : veille {pc(-1)} · "
+                              f"jour J {pc(0)} · J+3 {pc(3)} · J+7 {pc(7)} · plus haut à J{jp:+d}")
+            lignes.append("<i>Variation de la mcap depuis le premier relevé (jusqu'à J−30), une fois par jour, "
+                          "sur les plus gros tokens du sujet. Sert à savoir s'il vaut mieux acheter tôt et revendre "
+                          "avant le jour J.</i>")
             envoyer("\n".join(lignes))
 
 
