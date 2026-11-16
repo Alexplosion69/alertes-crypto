@@ -32,8 +32,9 @@ def resume(nom, g):
           + (f" · rejeu x1,5/−30 %/12 h {sum(rj) / len(rj) * 100:+.0f} % ({len(rj)})" if rj else ""))
 
 
-avec = [a for a in mom if a.get("evitement")]
-sans = [a for a in mom if not a.get("evitement")]
+# « evitement » = la raison d'éviter le token (vide si aucune) : passent = ceux sans raison d'éviter
+avec = [a for a in mom if not a.get("evitement")]
+sans = [a for a in mom if a.get("evitement")]
 resume("Passent l'évitement", avec)
 resume("Écartées par l'évitement", sans)
 mi = statistics.median(a["ts"] for a in mom)
@@ -43,4 +44,12 @@ print("\nLes alertes qui passent, de la meilleure à la pire :")
 for a in sorted(avec, key=lambda a: -suivi.resultat_sim_net(a)):
     print(f"   {time.strftime('%d/%m %H h', time.gmtime(a['ts']))} {str(a.get('symbol'))[:12]:12} {a.get('chain', '')[:8]:8} "
           f"mcap {(a.get('mcap') or 0) / 1e3:7.0f} k$ · plus haut x{(a.get('peak') or a['price']) / a['price']:.1f} · "
-          f"résultat {suivi.resultat_sim_net(a) * 100:+.0f} %" + (" · mort" if a.get("mort_zero") else ""))
+          f"résultat {suivi.resultat_sim_net(a) * 100:+.0f} %" + (" · mort" if a.get("mort_zero") else "")
+          + (f" · rejeu x1,5 {suivi.rejeu(a, 'x15') * 100:+.0f} %" if suivi.rejeu(a, "x15") is not None else ""))
+print("\nRaisons d'éviter les autres :")
+raisons = {}
+for a in sans:
+    r = str(a["evitement"]).split(":")[0][:40]
+    raisons[r] = raisons.get(r, 0) + 1
+for r, n in sorted(raisons.items(), key=lambda kv: -kv[1]):
+    print(f"   {r} : {n}")
