@@ -1179,11 +1179,11 @@ def bilan_quotidien(st, sv, pf, forcer=False):
                f"gagnants {sum(x > 0 for x in g) / n * 100:.0f} % · total {sum(g) * m:+.2f} €")
         if n >= 5:
             txt += f" · sans les 3 meilleurs {(sum(g) - sum(g[-3:])) / (n - 3) * 100:+.0f} %"
-        rj = [a["rejeu"]["net"] for a in liste if (a.get("rejeu") or {}).get("net") is not None]
+        rj = [suivi.rejeu(a, "net") for a in liste if suivi.rejeu(a, "net") is not None]
         if rj:
             txt += f"\n   re-simulation précise ({len(rj)}) : moyenne {sum(rj) / len(rj) * 100:+.0f} %"
             for cle, nom in (("x15", "avec la vente automatique x1,5 / −30 % / 12 h"), ("pos", "avec tes alertes de position")):
-                r2 = [a["rejeu"][cle] for a in liste if (a.get("rejeu") or {}).get(cle) is not None]
+                r2 = [suivi.rejeu(a, cle) for a in liste if suivi.rejeu(a, cle) is not None]
                 if r2:
                     txt += f" · {nom} {sum(r2) / len(r2) * 100:+.0f} %"
         return [txt]

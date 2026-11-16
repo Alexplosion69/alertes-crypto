@@ -431,30 +431,32 @@ def _regle_bougies(bougies):
     for h, b, c in bougies:
         if not moitie:
             if b <= 0.5:
-                return cash + reste * 0.5 - 1, haut
+                return cash + reste * 0.5 - 1, haut, 0.0
             if h >= 2:
                 cash, reste, moitie = 1.0, 0.5, True
         haut = max(haut, h)
         if moitie and b <= max(1.0, 0.5 * haut):
-            return cash + reste * max(1.0, 0.5 * haut) - 1, haut
-    return cash + reste * (bougies[-1][2] if bougies else 1.0) - 1, haut
+            return cash + reste * max(1.0, 0.5 * haut) - 1, haut, 0.0
+    ouvert = reste * (bougies[-1][2] if bougies else 1.0)     # encore détenu à la fin de la fenêtre
+    return cash + ouvert - 1, haut, ouvert
 
 
 def _regle_x15(bougies):
     """Testée le 01/11 sur 563 alertes (la meilleure en moyenne) : tout vendu à x1,5, stop à −30 %
     (rempli 3 % plus bas), sinon sortie à 12 h. Bougies : (minutes, haut, bas, clôture)."""
-    der = 1.0
+    der, t_der = 1.0, 0
     for t, h, b, c in bougies:
         if t > 12 * 60:
             break
-        der = c
+        der, t_der = c, t
         if t < 0:
             continue
         if b <= 0.7:
-            return min(0.7 * 0.97, c) - 1
+            return min(0.7 * 0.97, c) - 1, 0.0
         if h >= 1.5:
-            return 0.5
-    return der - 1
+            return 0.5, 0.0
+    # vendu à 12 h ; si les bougies s'arrêtent avant (pool vidé ?), la vente n'est pas sûre
+    return der - 1, (der if t_der < 12 * 60 - 30 else 0.0)
 
 
 def _regle_positions(bougies):
@@ -467,9 +469,9 @@ def _regle_positions(bougies):
             continue
         seuil = max(0.5, 0.7 * haut) if haut >= 1.5 else 0.5
         if b <= seuil:
-            return min(seuil * 0.97, c) - 1
+            return min(seuil * 0.97, c) - 1, 0.0
         haut = max(haut, h)
-    return der - 1
+    return der - 1, der
 
 
 def rejouer(alertes, sv):
@@ -502,12 +504,28 @@ def rejouer(alertes, sv):
         if not bougies or max(h for h, _, _ in bougies) > X_MAX:
             a["rejeu"] = {"vide": True}
             continue
-        brut, haut = _regle_bougies(bougies)
+        brut, haut, o_net = _regle_bougies(bougies)
         frais = (_frais(1.0) * (3 if haut >= 2 else 2))
         bt = [((c[0] - a["ts"]) / 60, c[2] / a["price"], c[3] / a["price"], c[4] / a["price"]) for c in liste
               if c[0] >= a["ts"] - 300 and c[2] and c[3] and c[4]]
+        r15, o15 = _regle_x15(bt)
+        rpos, opos = _regle_positions(bt)
         a["rejeu"] = {"net": round(brut - frais, 3), "pic": round(haut, 2),
                       "creux": round(min(b for _, b, _ in bougies), 2), "n": len(bougies),
-                      "x15": round(_regle_x15(bt) - 2 * _frais(1.0), 3),
-                      "pos": round(_regle_positions(bt) - 2 * _frais(1.0), 3)}
+                      "x15": round(r15 - 2 * _frais(1.0), 3), "pos": round(rpos - 2 * _frais(1.0), 3),
+                      # 16/11 : part encore détenue en fin de rejeu ; si le token meurt ensuite, elle vaut 0
+                      "ouvert": {"net": round(o_net, 3), "x15": round(o15, 3), "pos": round(opos, 3)}}
+
+
+def rejeu(a, cle):
+    """Résultat du rejeu en bougies de 5 min pour la règle `cle`, corrigé si le token est mort depuis :
+    ce qu'on détenait encore à la fin du rejeu est invendable (16/11 : les wallets gagnants affichaient
+    +31 % au rejeu contre −60 % en vrai, les bougies s'arrêtant au dernier prix avant la mort)."""
+    r = (a.get("rejeu") or {}).get(cle)
+    if r is None or not a.get("mort_zero"):
+        return r
+    ouvert = (a["rejeu"].get("ouvert") or {}).get(cle)
+    if ouvert is None:                                    # rejeu ancien, sans le détail : on reste prudent
+        return min(r, resultat_sim_net(a))
+    return round(r - ouvert, 3)
     return faits

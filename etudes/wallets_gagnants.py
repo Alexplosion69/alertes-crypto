@@ -19,7 +19,7 @@ def ligne(nom, g):
         return
     r = sorted(suivi.resultat_sim_net(s) for s in g)
     n = len(r)
-    rj = [s["rejeu"]["net"] for s in g if (s.get("rejeu") or {}).get("net") is not None]
+    rj = [suivi.rejeu(s, "net") for s in g if suivi.rejeu(s, "net") is not None]
     x2 = sum(1 for s in g if (s.get("peak") or s["price"]) / s["price"] >= 2)
     print(f"  {nom:28} {n:4} · moyenne {sum(r) / n * 100:+5.0f} % · médiane {statistics.median(r) * 100:+5.0f} % · "
           f"gagnants {sum(x > 0 for x in r) / n * 100:3.0f} % · x2 {x2:3} · sans les 3 meilleurs "
