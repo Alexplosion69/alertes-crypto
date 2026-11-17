@@ -33,6 +33,7 @@ import meteora_sim
 import faux_ordres
 import faux_ordres_rh
 import tendance_sim
+import fin_de_mois_sim
 import baleines
 import devs
 import evenements
@@ -656,6 +657,10 @@ def cycle(st, sent_this_hour, sv, pf):
         tendance_sim.tick(st, telegram)
     except Exception as e:
         print(f"[warn] tendance simulée : {type(e).__name__} {str(e)[:120]}")
+    try:                                   # 17/11 : effet « fin de mois » sur SPY et QQQ, en simulation
+        fin_de_mois_sim.tick(st, telegram)
+    except Exception as e:
+        print(f"[warn] fin de mois simulée : {type(e).__name__} {str(e)[:120]}")
 
     def envoyer(texte):
         if sent_this_hour[0] >= MAX_ALERTES_HEURE:
@@ -1309,6 +1314,7 @@ def bilan_quotidien(st, sv, pf, forcer=False):
 
     lignes += ["", "<b>④ Les essais pour plus tard</b> (rien d'engagé)"]
     lignes += tendance_sim.bilan(st)
+    lignes += fin_de_mois_sim.bilan(st)
     lignes += faux_ordres.bilan(st)
     lignes += faux_ordres_rh.bilan(st)
     lignes += meteora_sim.bilan(st)
