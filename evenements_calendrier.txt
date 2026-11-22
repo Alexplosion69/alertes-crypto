@@ -5,19 +5,22 @@
 # Les mots-clés servent à repérer les tokens, tes positions et l'actu du jour J (évite les mots trop courants).
 # Ajouter depuis Telegram : /evenement 2026-11-19 GTA 6 gta6,gta (ajouté comme majeur) · retirer : /oublie Nom
 # N'ajoute que des dates confirmées. À surveiller (Musk : Tesla, SpaceX/Starship, xAI ; grosses sorties de jeux
-# et de films ; grandes finales) : Starship vol 16 (visé en décembre, pas de date), présentation Optimus V3, Grok 5.
+# et de films ; grandes finales) : Starship vol 16 (NET 10 déc. depuis LC-39A, pas de date officielle SpaceX),
+# présentation Optimus V3, Grok 4.8 et Grok 5 (Musk : « dans 2 ou 3 mois »), annonce possible d'une fusion
+# SpaceX-Tesla (décembre selon la presse), résultats T4 Tesla (fin janvier, date pas encore publiée), Fable 4 (23/02/2027).
 2026-10-31 | Halloween | halloween, halloweek, spooky, pumpkin | recurrent
 2026-11-03 | Élections de mi-mandat aux États-Unis | midterms, election, vote | recurrent
 2026-11-15 | Solana Breakpoint (Londres) | breakpoint | recurrent
 2026-11-19 | Sortie de GTA 6 | gta6, gta, vicecity, dacity, ttwo, leonida | majeur
 2026-11-26 | Thanksgiving | thanksgiving, turkey | recurrent
 2026-11-27 | Black Friday | blackfriday, black friday | recurrent
-2026-12-03 | AG des actionnaires Tesla (Optimus, Cybercab, Roadster ; le soir, en direct) | tesla, optimus, roadster, cybercab, musk | majeur
+2026-12-03 | AG des actionnaires Tesla (Optimus, Cybercab, Roadster ; 22h heure de Paris, en direct) | tesla, optimus, roadster, cybercab, musk | majeur
 2026-12-10 | The Game Awards | gameawards, goty | recurrent
 2026-12-18 | Avengers: Doomsday et Dune: Part Three | avengers, doomsday, dune, dunesday, marvel | majeur
 2026-12-25 | Noël | christmas, santa, xmas, noel | recurrent
 2027-01-01 | Nouvel an | newyear, 2027 | recurrent
 2027-02-14 | Saint-Valentin | valentine, love | recurrent
 2027-02-14 | Super Bowl LXI (mi-temps de Jay-Z) | superbowl, jayz, halftime | recurrent
+2027-02-16 | Sortie de God of War Laufey (PS5) | godofwar, kratos, laufey | majeur
 2027-06-30 | Shrek 5 | shrek | majeur
 2027-12-17 | Avengers: Secret Wars | secretwars, avengers | majeur
