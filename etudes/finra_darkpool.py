@@ -133,3 +133,29 @@ for lab, cond in (("2018-2022 (choix)", lambda j: j < COUPE.isoformat()),
             if len(x) >= 15 and r:
                 print(f"      {s} {sg[:40]:40} {len(x):4} cas · 1 sem. écart {(statistics.fmean(e[3] for e in x) - statistics.fmean(e[3] for e in r)) * 100:+.2f}"
                       f" · 1 mois écart {(statistics.fmean(e[4] for e in x) - statistics.fmean(e[4] for e in r)) * 100:+.2f}")
+
+print("\n=== Titre par titre : écart à 1 mois du signal, 2018-2022 → 2023-2026 (gagnant si > 0 les deux fois) ===")
+for sg in signaux[1:]:
+    ok, lignes = 0, []
+    for s in SYMS:
+        ec = []
+        for cond in (lambda j: j < COUPE.isoformat(), lambda j: j >= COUPE.isoformat()):
+            x = [e[4] for e in evts if e[1] == s and e[2] == sg and cond(e[0])]
+            r = [e[4] for e in evts if e[1] == s and e[2] == signaux[0] and cond(e[0])]
+            ec.append(statistics.fmean(x) - statistics.fmean(r) if len(x) >= 10 and r else None)
+        if None not in ec:
+            ok += ec[0] > 0 and ec[1] > 0
+            lignes.append(f"{s} {ec[0] * 100:+.1f}→{ec[1] * 100:+.1f}")
+    print(f"   {sg} : positif sur les deux périodes pour {ok}/{len(lignes)} titres")
+    print("      " + " · ".join(lignes))
+    # un achat par mois au plus (sans chevauchement) : premier signal du mois, tenu 20 jours
+    for lab, cond in (("2018-2022", lambda j: j < COUPE.isoformat()), ("2023-2026", lambda j: j >= COUPE.isoformat())):
+        vus, g = set(), []
+        for e in sorted(evts):
+            if e[2] == sg and cond(e[0]) and (e[1], e[0][:7]) not in vus:
+                vus.add((e[1], e[0][:7]))
+                g.append(e[4])
+        ref = statistics.fmean(e[4] for e in evts if e[2] == signaux[0] and cond(e[0]))
+        if g:
+            print(f"      sans chevauchement {lab} : {len(g)} achats, {statistics.fmean(g) * 100:+.2f} %/mois (référence {ref * 100:+.2f}), "
+                  f"médiane {statistics.median(g) * 100:+.2f} %, gagnants {sum(x > 0 for x in g) / len(g) * 100:.0f} %")
